@@ -264,6 +264,12 @@ MIT License
 <details>
 <summary>更新日志</summary>
 
+### v0.10.3 (2026-11-27)
+- fix: 修复代理集合选择对话框的两个问题
+- feat: 选择代理集合时支持按集合名新建代理组
+- fix: 修复代理集合添加逻辑
+- chore: update generated files
+- feat: 模板编辑器支持添加代理集合
 ### v0.10.2 (2026-11-27)
 - fix: 模板编辑器可引用订阅里的代理集合，发布与自更新地址改为 moeacgx/miaomiaowu
 ### v0.10.1 (2026-11-07)
