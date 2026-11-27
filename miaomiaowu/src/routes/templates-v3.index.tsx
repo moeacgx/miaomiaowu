@@ -116,6 +116,7 @@ function TemplatesV3Page() {
   // Proxy collection selector state
   const [isProxyCollectionSelectorOpen, setIsProxyCollectionSelectorOpen] = useState(false)
   const [selectedProxyCollections, setSelectedProxyCollections] = useState<string[]>([])
+  const [targetProxyGroupIndex, setTargetProxyGroupIndex] = useState<number>(0)
 
   // Fetch templates list
   const { data: templateListData, isLoading } = useQuery<{ templates: string[]; visibility: Record<string, boolean>; sources?: Record<string, string> }>({
@@ -629,31 +630,57 @@ function TemplatesV3Page() {
 
   // Handle add proxy collections
   const handleAddProxyCollections = () => {
+    setTargetProxyGroupIndex(0)
     setIsProxyCollectionSelectorOpen(true)
   }
 
   const handleProxyCollectionsConfirm = () => {
-    // Add selected proxy collections to the first proxy group's proxyOrder if exists, otherwise create a new group
     if (selectedProxyCollections.length === 0) {
       toast.error('请选择至少一个代理集合')
       return
     }
 
+    // Add selected collections to providerSnapshots
+    const newSnapshots: ProxyProviderSnapshot[] = []
+    selectedProxyCollections.forEach((collectionName) => {
+      // Check if already exists in providerSnapshots
+      const exists = providerSnapshots.some(snapshot => snapshot.name === collectionName)
+      if (!exists) {
+        const config = proxyProviderConfigs.find(c => c.name === collectionName)
+        if (config) {
+          newSnapshots.push({
+            name: config.name,
+            subscriptionId: config.external_subscription_id || 0,
+            filter: config.filter || '',
+            excludeFilter: config.exclude_filter || '',
+            processMode: config.process_mode || 'client',
+          })
+        }
+      }
+    })
+
+    if (newSnapshots.length > 0) {
+      setProviderSnapshots([...providerSnapshots, ...newSnapshots])
+    }
+
+    // Add to target proxy group or create new one
     if (proxyGroups.length === 0) {
       // Create a new group with the selected providers
       const newGroup = createDefaultFormState('新代理组 1')
-      newGroup.includeAllProviders = true
+      newGroup.proxyOrder = [...selectedProxyCollections]
+      newGroup.usedProviders = [...selectedProxyCollections]
       setProxyGroups([newGroup])
     } else {
-      // Add to the first group's proxyOrder as providers
+      // Add to the target group's proxyOrder and usedProviders
       const updatedGroups = [...proxyGroups]
-      const firstGroup = updatedGroups[0]
+      const targetGroup = updatedGroups[targetProxyGroupIndex]
 
-      // Add selected collections to proxyOrder if not already present
       selectedProxyCollections.forEach((collectionName) => {
-        const providerMarker = `📦 ${collectionName}`
-        if (!firstGroup.proxyOrder.includes(providerMarker)) {
-          firstGroup.proxyOrder.push(providerMarker)
+        if (!targetGroup.proxyOrder.includes(collectionName)) {
+          targetGroup.proxyOrder.push(collectionName)
+        }
+        if (!targetGroup.usedProviders.includes(collectionName)) {
+          targetGroup.usedProviders.push(collectionName)
         }
       })
 
@@ -1028,6 +1055,21 @@ function TemplatesV3Page() {
               )}
             </div>
           </ScrollArea>
+          {proxyGroups.length > 0 && (
+            <div className="p-3 border-t">
+              <Label htmlFor="target-group" className="text-sm font-medium mb-2 block">添加到代理组</Label>
+              <select
+                id="target-group"
+                value={targetProxyGroupIndex}
+                onChange={(e) => setTargetProxyGroupIndex(Number(e.target.value))}
+                className="w-full p-2 border rounded-md text-sm"
+              >
+                {proxyGroups.map((group, index) => (
+                  <option key={index} value={index}>{group.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => {
               setSelectedProxyCollections([])
