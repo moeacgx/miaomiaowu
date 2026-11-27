@@ -96,7 +96,7 @@ ${COMMITS}
 ## 更新版本
 从 0.3.5 版本 开始，可以在网页端直接检查并更新应用。
 0.5.1版本修改了仓库地址，使用docker的需要修改镜像地址为
-\`ghcr.io/iluobei/miaomiaowu:latest\`
+\`ghcr.io/moeacgx/miaomiaowu:latest\`
 
 ## 操作方法：
 进入 「个人设置」 菜单 → 点击 「检查更新」 按钮 → 确认更新
@@ -111,5 +111,5 @@ gh release create "v${NEW_VERSION}" \
 
 echo ""
 echo "=== 发布完成! v${NEW_VERSION} ==="
-echo "  Release: https://github.com/iluobei/miaomiaowu/releases/tag/v${NEW_VERSION}"
+echo "  Release: https://github.com/moeacgx/miaomiaowu/releases/tag/v${NEW_VERSION}"
 echo "  GitHub Action 将自动打包二进制文件"

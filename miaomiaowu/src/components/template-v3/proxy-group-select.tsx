@@ -43,6 +43,7 @@ interface ProxyGroupSelectProps {
   value: string[]
   onChange: (value: string[]) => void
   availableGroups: string[]
+  availableProviders?: string[]
   showNodesMarker?: boolean
   showProvidersMarker?: boolean
   showRegionGroupsMarker?: boolean
@@ -79,7 +80,8 @@ function markerDisplayName(id: string): string {
   }
 }
 
-function markerBgClass(id: string): string {
+function markerBgClass(id: string, providerNames: string[] = []): string {
+  if (providerNames.includes(id)) return 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700'
   switch (id) {
     case PROXY_NODES_MARKER: return 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'
     case PROXY_PROVIDERS_MARKER: return 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700'
@@ -90,7 +92,7 @@ function markerBgClass(id: string): string {
   }
 }
 
-function SortableItem({ id, onRemove }: SortableItemProps) {
+function SortableItem({ id, onRemove, providerNames = [] }: SortableItemProps & { providerNames?: string[] }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const isMarker = isSpecialMarker(id)
 
@@ -105,7 +107,7 @@ function SortableItem({ id, onRemove }: SortableItemProps) {
     <div
       ref={setNodeRef}
       style={style}
-      className={cn('flex items-center gap-1 rounded-md px-2 py-1', markerBgClass(id))}
+      className={cn('flex items-center gap-1 rounded-md px-2 py-1', markerBgClass(id, providerNames))}
     >
       <GripVertical className="h-3 w-3 cursor-grab text-muted-foreground" {...attributes} {...listeners} />
       <span className="text-sm">{markerDisplayName(id)}</span>
@@ -123,9 +125,9 @@ function SortableItem({ id, onRemove }: SortableItemProps) {
   )
 }
 
-function DragOverlayItem({ id }: { id: string }) {
+function DragOverlayItem({ id, providerNames = [] }: { id: string; providerNames?: string[] }) {
   return (
-    <div className={cn('flex items-center gap-1 rounded-md px-2 py-1 shadow-lg', markerBgClass(id))}>
+    <div className={cn('flex items-center gap-1 rounded-md px-2 py-1 shadow-lg', markerBgClass(id, providerNames))}>
       <GripVertical className="h-3 w-3 cursor-grab text-muted-foreground" />
       <span className="text-sm">{markerDisplayName(id)}</span>
     </div>
@@ -137,6 +139,7 @@ export function ProxyGroupSelect({
   value,
   onChange,
   availableGroups,
+  availableProviders = [],
   showNodesMarker = false,
   showProvidersMarker = false,
   showRegionGroupsMarker = false,
@@ -258,12 +261,12 @@ export function ProxyGroupSelect({
             <SortableContext items={displayItems} strategy={rectSortingStrategy}>
               <div className="flex flex-wrap gap-2">
                 {displayItems.map(item => (
-                  <SortableItem key={item} id={item} onRemove={handleRemove} />
+                  <SortableItem key={item} id={item} onRemove={handleRemove} providerNames={availableProviders} />
                 ))}
               </div>
             </SortableContext>
             <DragOverlay>
-              {activeId ? <DragOverlayItem id={activeId} /> : null}
+              {activeId ? <DragOverlayItem id={activeId} providerNames={availableProviders} /> : null}
             </DragOverlay>
           </DndContext>
         )}
@@ -279,7 +282,7 @@ export function ProxyGroupSelect({
               <CommandInput placeholder="搜索代理组..." />
               <CommandList>
                 <CommandEmpty>没有找到代理组</CommandEmpty>
-                <CommandGroup>
+                <CommandGroup heading={availableProviders.length > 0 ? '代理组' : undefined}>
                   {availableGroups.map(groupName => (
                     <CommandItem key={groupName} value={groupName} onSelect={() => handleSelect(groupName)}>
                       <Check className={cn('mr-2 h-4 w-4', value.includes(groupName) ? 'opacity-100' : 'opacity-0')} />
@@ -287,6 +290,16 @@ export function ProxyGroupSelect({
                     </CommandItem>
                   ))}
                 </CommandGroup>
+                {availableProviders.length > 0 && (
+                  <CommandGroup heading="代理集合">
+                    {availableProviders.map(providerName => (
+                      <CommandItem key={`provider-${providerName}`} value={providerName} onSelect={() => handleSelect(providerName)}>
+                        <Check className={cn('mr-2 h-4 w-4', value.includes(providerName) ? 'opacity-100' : 'opacity-0')} />
+                        {providerName}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
               </CommandList>
             </Command>
           </PopoverContent>

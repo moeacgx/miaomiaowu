@@ -1759,10 +1759,11 @@ func (h *subscribeFilesHandler) regenerateFromTemplate(ctx context.Context, user
 		}
 	}
 	logger.Info("[模板生成] 从代理集合表获取代理集合", "count", len(providerConfigs), "with_nodes", len(providers))
+	templateForProcess, providerPlan := prepareTemplateProviderSnapshots(ctx, h.repo, username, string(templateContent), nodes, providers)
 
 	// 4. 使用 TemplateV3Processor 处理模板
 	processor := substore.NewTemplateV3Processor(nil, providers)
-	result, err := processor.ProcessTemplate(string(templateContent), proxies)
+	result, err := processor.ProcessTemplate(templateForProcess, proxies)
 	if err != nil {
 		return fmt.Errorf("处理模板失败: %w", err)
 	}
@@ -1772,6 +1773,7 @@ func (h *subscribeFilesHandler) regenerateFromTemplate(ctx context.Context, user
 	if err != nil {
 		return fmt.Errorf("注入代理节点失败: %w", err)
 	}
+	result = finishTemplateProviderSnapshots(result, providerPlan, providerConfigs)
 
 	// 5.5 孤儿节点裁剪:顶层 proxies: 只保留被 proxy-groups 实际引用的节点
 	if pruned, perr := pruneUnreferencedProxiesYAML([]byte(result)); perr == nil {

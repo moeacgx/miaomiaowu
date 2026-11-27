@@ -1,4 +1,5 @@
 name: Docker GHCR
+# 镜像名使用 github.repository，fork 到自己的账号后推送 main 或打 v* tag 即发布到自己的 GHCR。
 
 on:
   push:

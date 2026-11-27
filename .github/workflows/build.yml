@@ -1,4 +1,5 @@
 name: Build and Release
+# 镜像名和 Release 都跟着当前仓库走（github.repository），推到自己的账号就会发到自己的 GHCR / Releases。
 
 on:
   push:

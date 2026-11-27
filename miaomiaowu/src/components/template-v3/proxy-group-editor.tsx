@@ -23,6 +23,7 @@ interface ProxyGroupEditorProps {
   group: ProxyGroupFormState
   index: number
   allGroupNames: string[]
+  providerNames?: string[]
   onChange: (index: number, group: ProxyGroupFormState) => void
   onDelete: (index: number) => void
   onMoveUp?: (index: number) => void
@@ -46,6 +47,7 @@ export function ProxyGroupEditor({
   group,
   index,
   allGroupNames,
+  providerNames = [],
   onChange,
   onDelete,
   onMoveUp,
@@ -280,13 +282,17 @@ export function ProxyGroupEditor({
               <ProxyGroupSelect
                 label="代理顺序 (拖拽排序)"
                 value={group.proxyOrder}
-                onChange={(v) => updateField('proxyOrder', v)}
+                onChange={(v) => {
+                  const used = v.filter(name => providerNames.includes(name))
+                  onChange(index, { ...group, proxyOrder: v, usedProviders: used })
+                }}
                 availableGroups={allGroupNames.filter(n => n !== group.name)}
+                availableProviders={providerNames.filter(n => n !== group.name)}
                 showNodesMarker={hasProxyNodes(group)}
                 showProvidersMarker={hasProxyProviders(group)}
                 showRegionGroupsMarker={group.includeRegionProxyGroups}
                 showDefaultOutboundMarker={group.includeDefaultOutbound}
-                placeholder="选择要引用的代理组"
+                placeholder={providerNames.length > 0 ? '选择要引用的代理组或代理集合' : '选择要引用的代理组'}
               />
             </div>
 

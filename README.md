@@ -48,7 +48,7 @@ docker run -d \
   -v $(pwd)/mmw-data:/app/data \
   -v $(pwd)/subscribes:/app/subscribes \
   -v $(pwd)/rule_templates:/app/rule_templates \
-  ghcr.io/iluobei/miaomiaowu:latest
+  ghcr.io/moeacgx/miaomiaowu:latest
 ```
 
 参数说明：
@@ -60,7 +60,7 @@ docker run -d \
 
 更新镜像后可执行：
 ```bash
-docker pull ghcr.io/iluobei/miaomiaowu:latest
+docker pull ghcr.io/moeacgx/miaomiaowu:latest
 docker stop miaomiaowu && docker rm miaomiaowu
 ```
 然后按照上方命令重新启动服务。
@@ -74,7 +74,7 @@ version: '3.8'
 
 services:
   miaomiaowu:
-    image: ghcr.io/iluobei/miaomiaowu:latest
+    image: ghcr.io/moeacgx/miaomiaowu:latest
     container_name: miaomiaowu
     restart: unless-stopped
     user: root
@@ -165,7 +165,7 @@ sudo cp -rf /var/lib/traffic-info/* /etc/mmw/
 **自动安装为 systemd 服务（Debian/Ubuntu）：**
 ```bash
 # 下载并运行安装脚本
-curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/install.sh | bash
+curl -sL https://raw.githubusercontent.com/moeacgx/miaomiaowu/main/install.sh | bash
 ```
 
 安装完成后，服务将自动启动，访问 `http://服务器IP:8080` 即可。
@@ -173,13 +173,13 @@ curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/install.sh | 
 **更新到最新版本：**
 ```bash
 # systemd 服务更新
-curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/install.sh | sudo bash -s update
+curl -sL https://raw.githubusercontent.com/moeacgx/miaomiaowu/main/install.sh | sudo bash -s update
 ```
 
 **卸载服务：**
 ```bash
 # 卸载 systemd 服务（保留数据）
-curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/install.sh | sudo bash -s uninstall
+curl -sL https://raw.githubusercontent.com/moeacgx/miaomiaowu/main/install.sh | sudo bash -s uninstall
 
 # 卸载后如需完全清除数据，手动删除数据目录
 sudo rm -rf /etc/mmw
@@ -188,7 +188,7 @@ sudo rm -rf /etc/mmw
 **简易安装（手动运行）：**
 ```bash
 # 一键下载安装
-curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/quick-install.sh | bash
+curl -sL https://raw.githubusercontent.com/moeacgx/miaomiaowu/main/quick-install.sh | bash
 
 # 运行服务
 ./mmw
@@ -197,7 +197,7 @@ curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/quick-install
 **卸载服务：**
 ```bash
 # 卸载 systemd 服务（保留数据）
-curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/quick-install.sh | sudo bash -s uninstall
+curl -sL https://raw.githubusercontent.com/moeacgx/miaomiaowu/main/quick-install.sh | sudo bash -s uninstall
 
 # 卸载后如需完全清除数据，手动删除数据目录
 sudo rm -rf ./data ./subscribes ./rule_templates
@@ -206,13 +206,13 @@ sudo rm -rf ./data ./subscribes ./rule_templates
 **更新简易安装版本：**
 ```bash
 # 更新到最新版本
-curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/quick-install.sh | bash -s update
+curl -sL https://raw.githubusercontent.com/moeacgx/miaomiaowu/main/quick-install.sh | bash -s update
 ```
 
 **Windows：**
 ```powershell
 # 从 Releases 页面下载 mmw-windows-amd64.exe
-# https://github.com/iluobei/miaomiaowu/releases
+# https://github.com/moeacgx/miaomiaowu/releases
 
 # 双击运行或在命令行中执行
 .\mmw-windows-amd64.exe
@@ -220,15 +220,15 @@ curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/quick-install
 <details>
 <summary>页面截图</summary>
 
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/traffic_info.png)  
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/subscribe_url.png)  
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/probe_datasource.png)  
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/subscribe_manage.png)  
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/generate_subscribe.png)  
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/custom_proxy_group.png)  
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/node_manage.png)  
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/user_manage.png)
-![image](https://github.com/iluobei/miaomiaowu/blob/main/screenshots/system_settings.png)
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/traffic_info.png)  
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/subscribe_url.png)  
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/probe_datasource.png)  
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/subscribe_manage.png)  
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/generate_subscribe.png)  
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/custom_proxy_group.png)  
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/node_manage.png)  
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/user_manage.png)
+![image](https://github.com/moeacgx/miaomiaowu/blob/main/screenshots/system_settings.png)
 </details>
 
 ### 技术特点
@@ -245,7 +245,7 @@ curl -sL https://raw.githubusercontent.com/iluobei/miaomiaowu/main/quick-install
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=iluobei/miaomiaowu&type=date&legend=top-left)](https://www.star-history.com/#iluobei/miaomiaowu&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=moeacgx/miaomiaowu&type=date&legend=top-left)](https://www.star-history.com/#moeacgx/miaomiaowu&type=date&legend=top-left)
 
 
 ## 许可证
@@ -258,8 +258,8 @@ MIT License
 
 ## 联系方式
 
-- 问题反馈：[GitHub Issues](https://github.com/iluobei/miaomiaowu/issues)
-- 功能建议：[GitHub Discussions](https://github.com/iluobei/miaomiaowu/discussions)
+- 问题反馈：[GitHub Issues](https://github.com/moeacgx/miaomiaowu/issues)
+- 功能建议：[GitHub Discussions](https://github.com/moeacgx/miaomiaowu/discussions)
 ## 更新日志
 <details>
 <summary>更新日志</summary>
@@ -568,7 +568,7 @@ MIT License
 - 🌈 节点管理支持本地缓存记忆状态
 - 🌈 外部订阅地址支持修改
 - 🌈 使用虚拟dom减少页面卡顿
-- 🌈 合并生成订阅与添加代理组的预置代理组数据，代理组模板支持从github拉取 [proxy-groups.json](https://raw.githubusercontent.com/iluobei/miaomiaowu/refs/heads/main/proxy_groups/proxy-groups.default.json)
+- 🌈 合并生成订阅与添加代理组的预置代理组数据，代理组模板支持从github拉取 [proxy-groups.json](https://raw.githubusercontent.com/moeacgx/miaomiaowu/refs/heads/main/proxy_groups/proxy-groups.default.json)
 - 🌈 添加代理组时支持选择emoji
 - 🌈 生成订阅页面节点支持排序
 - 🌈 优化代理组节点拖动性能

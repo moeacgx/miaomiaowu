@@ -33,8 +33,10 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
   extractProxyGroups,
+  extractProxyProviderSnapshots,
   extractTemplateVariables,
   updateProxyGroups,
+  updateProxyProviderSnapshots,
   createDefaultFormState,
   parseTemplate,
   generateProxyGroupsPreview,
@@ -47,6 +49,7 @@ import {
   PROXY_PROVIDERS_DISPLAY,
   REGION_PROXY_GROUPS_DISPLAY,
   type ProxyGroupFormState,
+  type ProxyProviderSnapshot,
 } from '@/lib/template-v3-utils'
 
 export const Route = createFileRoute('/templates-v3/')({
@@ -90,6 +93,7 @@ function TemplatesV3Page() {
   const pendingDraftRef = useRef<any>(null)
   const [enableRegionProxyGroups, setEnableRegionProxyGroups] = useState(false)
   const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({})
+  const [providerSnapshots, setProviderSnapshots] = useState<ProxyProviderSnapshot[]>([])
 
   // Delete/Rename state
   const [deletingTemplateName, setDeletingTemplateName] = useState<string | null>(null)
@@ -177,6 +181,33 @@ function TemplatesV3Page() {
     },
     enabled: isEditorOpen,
   })
+
+  const { data: proxyProviderConfigsData } = useQuery({
+    queryKey: ['proxy-provider-configs'],
+    queryFn: async () => {
+      const response = await api.get('/api/user/proxy-provider-configs')
+      return response.data as Array<{
+        id: number
+        name: string
+        external_subscription_id: number
+        filter?: string
+        exclude_filter?: string
+        process_mode?: string
+      }>
+    },
+    enabled: isEditorOpen && !isTextTemplate,
+  })
+  const proxyProviderConfigs = proxyProviderConfigsData ?? []
+
+  const { data: externalSubsData } = useQuery({
+    queryKey: ['external-subscriptions'],
+    queryFn: async () => {
+      const response = await api.get('/api/user/external-subscriptions')
+      return response.data as Array<{ id: number; name: string }>
+    },
+    enabled: isEditorOpen && !isTextTemplate,
+  })
+  const externalSubs = externalSubsData ?? []
 
   // Update template mutation
   const updateMutation = useMutation({
@@ -285,6 +316,7 @@ function TemplatesV3Page() {
 		setTemplateVariables({})
 		setProxyGroups([])
 		setEnableRegionProxyGroups(false)
+		setProviderSnapshots([])
 		setIsDirty(false)
 		isInitLoadRef.current = false
 		return
@@ -293,6 +325,7 @@ function TemplatesV3Page() {
       setTemplateVariables(vars)
       const groups = extractProxyGroups(templateData, vars)
       setProxyGroups(groups)
+      setProviderSnapshots(extractProxyProviderSnapshots(templateData))
       // Auto-enable region proxy groups toggle if any group has includeRegionProxyGroups
       const hasRegionProxyGroups = groups.some(g => g.includeRegionProxyGroups)
       setEnableRegionProxyGroups(hasRegionProxyGroups)
@@ -309,7 +342,8 @@ function TemplatesV3Page() {
               // Normalize templateData the same way draft was saved
               const vars = extractTemplateVariables(templateData)
               const groups = extractProxyGroups(templateData, vars)
-              const normalizedData = groups.length > 0 ? updateProxyGroups(templateData, groups) : templateData
+              const withGroups = groups.length > 0 ? updateProxyGroups(templateData, groups) : templateData
+              const normalizedData = updateProxyProviderSnapshots(withGroups, extractProxyProviderSnapshots(templateData))
               if (draft.templateContent !== normalizedData) {
                 pendingDraftRef.current = draft
                 setIsDraftRecoveryOpen(true)
@@ -342,8 +376,9 @@ function TemplatesV3Page() {
   useEffect(() => {
     if (!isDirty || !editingTemplateName || isInitLoadRef.current) return
     let content = templateContent
-    if (editorTab === 'visual' && proxyGroups.length > 0) {
-      content = updateProxyGroups(templateContent, proxyGroups)
+    if (editorTab === 'visual') {
+      if (proxyGroups.length > 0) content = updateProxyGroups(content, proxyGroups)
+      content = updateProxyProviderSnapshots(content, providerSnapshots)
     }
     const draft = {
       templateContent: content,
@@ -354,15 +389,18 @@ function TemplatesV3Page() {
       savedAt: Date.now(),
     }
     localStorage.setItem(TEMPLATE_DRAFT_KEY_PREFIX + editingTemplateName, JSON.stringify(draft))
-  }, [isDirty, templateContent, proxyGroups, enableRegionProxyGroups, templateVariables, editorTab, editingTemplateName])
+  }, [isDirty, templateContent, proxyGroups, providerSnapshots, enableRegionProxyGroups, templateVariables, editorTab, editingTemplateName])
+
+  const applyVisualToContent = useCallback((content: string) => {
+    let next = content
+    if (proxyGroups.length > 0) next = updateProxyGroups(next, proxyGroups)
+    return updateProxyProviderSnapshots(next, providerSnapshots)
+  }, [proxyGroups, providerSnapshots])
 
   // Sync proxy groups to YAML when switching tabs
   const syncProxyGroupsToYaml = useCallback(() => {
-    if (proxyGroups.length > 0) {
-      const newContent = updateProxyGroups(templateContent, proxyGroups)
-      setTemplateContent(newContent)
-    }
-  }, [proxyGroups, templateContent])
+    setTemplateContent(applyVisualToContent(templateContent))
+  }, [applyVisualToContent, templateContent])
 
   // Handle tab change
   const handleTabChange = (tab: string) => {
@@ -372,6 +410,7 @@ function TemplatesV3Page() {
       const vars = extractTemplateVariables(templateContent)
       setTemplateVariables(vars)
       setProxyGroups(extractProxyGroups(templateContent, vars))
+      setProviderSnapshots(extractProxyProviderSnapshots(templateContent))
     }
     setEditorTab(tab as 'visual' | 'yaml')
   }
@@ -443,7 +482,7 @@ function TemplatesV3Page() {
     if (!editingTemplateName) return
     let content = templateContent
     if (editorTab === 'visual') {
-      content = updateProxyGroups(templateContent, proxyGroups)
+      content = applyVisualToContent(templateContent)
     }
     updateMutation.mutate({ name: editingTemplateName, content })
   }
@@ -466,6 +505,7 @@ function TemplatesV3Page() {
     setIsDirty(false)
     setIsCloseConfirmOpen(false)
     setEnableRegionProxyGroups(false)
+    setProviderSnapshots([])
   }
 
   const handleRecoverDraft = () => {
@@ -474,6 +514,7 @@ function TemplatesV3Page() {
     isInitLoadRef.current = true
     setTemplateContent(draft.templateContent)
     setProxyGroups(draft.proxyGroups)
+    setProviderSnapshots(extractProxyProviderSnapshots(draft.templateContent || ''))
     setEnableRegionProxyGroups(draft.enableRegionProxyGroups)
     setTemplateVariables(draft.templateVariables)
     setEditorTab(draft.editorTab)
@@ -553,6 +594,29 @@ function TemplatesV3Page() {
   }
 
   // Handle add proxy group
+  const subscriptionName = (id: number) => externalSubs.find(sub => sub.id === id)?.name || (id ? `订阅 #${id}` : '未关联订阅')
+
+  const toggleProviderSnapshot = (config: { name: string; external_subscription_id: number; filter?: string; exclude_filter?: string; process_mode?: string }) => {
+    const exists = providerSnapshots.some(snapshot => snapshot.name === config.name)
+    if (exists) {
+      setProviderSnapshots(providerSnapshots.filter(snapshot => snapshot.name !== config.name))
+      setProxyGroups(proxyGroups.map(group => ({
+        ...group,
+        usedProviders: (group.usedProviders || []).filter(name => name !== config.name),
+        proxyOrder: group.proxyOrder.filter(name => name !== config.name),
+      })))
+    } else {
+      setProviderSnapshots([...providerSnapshots, {
+        name: config.name,
+        subscriptionId: config.external_subscription_id || 0,
+        filter: config.filter || '',
+        excludeFilter: config.exclude_filter || '',
+        processMode: config.process_mode || 'client',
+      }])
+    }
+    setIsDirty(true)
+  }
+
   const handleAddProxyGroup = () => {
     setProxyGroups([...proxyGroups, createDefaultFormState(`新代理组 ${proxyGroups.length + 1}`)])
     setIsDirty(true)
@@ -564,7 +628,7 @@ function TemplatesV3Page() {
     try {
       let content = templateContent
       if (editorTab === 'visual') {
-        content = updateProxyGroups(templateContent, proxyGroups)
+        content = applyVisualToContent(templateContent)
       }
       const response = await api.post('/api/admin/template-v3/preview', {
         template_content: content,
@@ -765,12 +829,43 @@ function TemplatesV3Page() {
                         />
                       </div>
 
+                      <div className="p-3 border rounded-lg bg-muted/30 space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                          <Label className="font-medium">引用代理集合</Label>
+                          <span className="text-xs text-muted-foreground">从订阅管理多选，保存为模板副本</span>
+                        </div>
+                        {proxyProviderConfigs.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">订阅管理里还没有代理集合</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {proxyProviderConfigs.map(config => {
+                              const selected = providerSnapshots.some(snapshot => snapshot.name === config.name)
+                              return (
+                                <Badge
+                                  key={config.id}
+                                  variant={selected ? 'default' : 'outline'}
+                                  className="cursor-pointer"
+                                  onClick={() => toggleProviderSnapshot(config)}
+                                >
+                                  {config.name}
+                                  <span className="ml-1 opacity-70">{subscriptionName(config.external_subscription_id)}</span>
+                                </Badge>
+                              )
+                            })}
+                          </div>
+                        )}
+                        {providerSnapshots.length > 0 && (
+                          <p className="text-xs text-muted-foreground">已快照 {providerSnapshots.length} 个，可在各代理组的顺序里引用</p>
+                        )}
+                      </div>
+
                       {proxyGroups.map((group, index) => (
                         <ProxyGroupEditor
                           key={index}
                           group={group}
                           index={index}
                           allGroupNames={proxyGroups.map(g => g.name)}
+                          providerNames={providerSnapshots.map(snapshot => snapshot.name)}
                           onChange={handleProxyGroupChange}
                           onDelete={handleProxyGroupDelete}
                           onMoveUp={handleProxyGroupMoveUp}

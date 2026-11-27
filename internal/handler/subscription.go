@@ -2627,6 +2627,7 @@ func (h *SubscriptionHandler) generateFromTemplate(ctx context.Context, username
 		}
 	}
 	logger.Info("[模板生成] 从代理集合表获取代理集合", "count", len(providerConfigs), "with_nodes", len(providers))
+	templateForProcess, providerPlan := prepareTemplateProviderSnapshots(ctx, h.repo, nodeOwner, string(templateContent), nodes, providers)
 	if isLoonTemplateFile(subscribeFile.TemplateFilename) {
 		rootProxies := make([]map[string]any, 0, len(proxies)+len(extraProxies))
 		rootProxies = append(rootProxies, proxies...)
@@ -2671,7 +2672,7 @@ func (h *SubscriptionHandler) generateFromTemplate(ctx context.Context, username
 
 	// 4. 使用 TemplateV3Processor 处理模板
 	processor := substore.NewTemplateV3Processor(nil, providers)
-	result, err := processor.ProcessTemplate(string(templateContent), proxies)
+	result, err := processor.ProcessTemplate(templateForProcess, proxies)
 	if err != nil {
 		return nil, fmt.Errorf("处理模板失败: %w", err)
 	}
@@ -2685,6 +2686,7 @@ func (h *SubscriptionHandler) generateFromTemplate(ctx context.Context, username
 	if err != nil {
 		return nil, fmt.Errorf("注入代理节点失败: %w", err)
 	}
+	result = finishTemplateProviderSnapshots(result, providerPlan, providerConfigs)
 
 	// 6. 注入中转代理组到 proxy-groups
 	if len(relayGroups) > 0 {

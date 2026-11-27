@@ -11,7 +11,7 @@ import (
 
 const (
 	// DefaultSourceURL 默认的远程配置地址
-	DefaultSourceURL = "https://gh-proxy.com/https://raw.githubusercontent.com/iluobei/miaomiaowu/refs/heads/main/configs/proxy-groups-lite.json"
+	DefaultSourceURL = "https://gh-proxy.com/https://raw.githubusercontent.com/moeacgx/miaomiaowu/refs/heads/main/configs/proxy-groups-lite.json"
 )
 
 var (

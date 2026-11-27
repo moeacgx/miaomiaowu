@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -287,12 +288,14 @@ func (h *TemplateV3Handler) processV3Template(templateContent string, proxies []
 	}
 	// Create processor with empty providers (v3 doesn't use external providers)
 	processor := substore.NewTemplateV3Processor(nil, nil)
+	prepared, providerPlan := prepareTemplateProviderSnapshots(context.Background(), nil, "", templateContent, nil, nil)
 
 	// Process the template
-	result, err := processor.ProcessTemplate(templateContent, proxies)
+	result, err := processor.ProcessTemplate(prepared, proxies)
 	if err != nil {
 		return "", err
 	}
+	result = finishTemplateProviderSnapshots(result, providerPlan, nil)
 
 	// Inject proxies into the result
 	result, err = injectProxiesIntoTemplate(result, proxies)

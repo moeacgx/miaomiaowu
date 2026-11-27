@@ -4,7 +4,7 @@
 set -e
 
 VERSION="v0.10.1"
-GITHUB_REPO="iluobei/miaomiaowu"
+GITHUB_REPO="moeacgx/miaomiaowu"
 VERSION_FILE=".version"
 PORT_FILE=".port"
 

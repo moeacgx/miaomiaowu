@@ -38,6 +38,7 @@ export type ProxyGroupType = typeof PROXY_GROUP_TYPES[number]
 export const PROXY_NODES_MARKER = '__PROXY_NODES__'
 export const PROXY_PROVIDERS_MARKER = '__PROXY_PROVIDERS__'
 export const REGION_PROXY_GROUPS_MARKER = '__REGION_PROXY_GROUPS__'
+export const PROXY_PROVIDER_SNAPSHOTS_KEY = 'proxy-provider-snapshots'
 
 // 默认出站:DIRECT / REJECT 是 Clash 内置代理名，直接以字面量参与代理顺序与输出，
 // 由「默认出站」开关(includeDefaultOutbound)控制是否出现，可在代理顺序里拖动排序。
@@ -74,6 +75,15 @@ export interface ProxyGroupV3Config {
   icon?: string
 }
 
+// 模板内保存的代理集合副本。生成订阅时按这份副本解析，不跟随订阅管理里之后的修改。
+export interface ProxyProviderSnapshot {
+  name: string
+  subscriptionId: number
+  filter: string
+  excludeFilter: string
+  processMode: string
+}
+
 // Parsed template structure
 export interface ParsedTemplate {
   port?: number
@@ -85,6 +95,7 @@ export interface ParsedTemplate {
   dns?: Record<string, unknown>
   proxies?: Array<Record<string, unknown>>
   'proxy-groups'?: ProxyGroupV3Config[]
+  'proxy-provider-snapshots'?: Array<Record<string, unknown>>
   rules?: string[]
   'rule-providers'?: Record<string, unknown>
 }
@@ -104,6 +115,7 @@ export interface ProxyGroupFormState {
   includeAllProviders: boolean
   includeRegionProxyGroups: boolean
   includeDefaultOutbound: boolean // 是否在代理顺序中加入 DIRECT / REJECT
+  usedProviders: string[] // 本模板代理集合副本的名称，写入 use
   includedProxyGroups: string[]
   proxyOrder: ProxyOrderItem[] // Order of proxy groups, nodes marker, providers marker
   staticProxies: string[]
@@ -138,6 +150,7 @@ const STANDARD_TOP_LEVEL_KEYS = new Set([
   'keep-alive-interval', 'geodata-mode', 'geo-auto-update',
   'geo-update-interval', 'geox-url',
   'add-region-proxy-groups',
+  PROXY_PROVIDER_SNAPSHOTS_KEY,
 ])
 
 // 从模板内容中提取自定义变量（非标准顶级键的标量字符串值）
@@ -177,6 +190,7 @@ export function createDefaultFormState(name = '新代理组'): ProxyGroupFormSta
     includeAllProviders: false,
     includeRegionProxyGroups: false,
     includeDefaultOutbound: false,
+    usedProviders: [],
     includedProxyGroups: [],
     proxyOrder: [],
     staticProxies: [],
@@ -261,7 +275,9 @@ export function formStateToConfig(state: ProxyGroupFormState): ProxyGroupV3Confi
   }
 
   // Build proxies list from proxyOrder (including markers for backend) and staticProxies
-  // Only include markers if the corresponding include option is set
+  // Only include markers if the corresponding include option is set.
+  // 选中的代理集合副本留在 proxies 里只为记住和代理组的相对顺序；同时写入 use。
+  const usedProviders = state.usedProviders ?? []
   const proxiesFromOrder = state.proxyOrder.filter(item => {
     if (item === PROXY_NODES_MARKER) return hasProxyNodes(state)
     if (item === PROXY_PROVIDERS_MARKER) return hasProxyProviders(state)
@@ -273,6 +289,15 @@ export function formStateToConfig(state: ProxyGroupFormState): ProxyGroupV3Confi
   if (allProxies.length > 0) {
     config.proxies = allProxies
   }
+
+  const useList: string[] = []
+  for (const item of state.proxyOrder) {
+    if (usedProviders.includes(item) && !useList.includes(item)) useList.push(item)
+  }
+  for (const name of usedProviders) {
+    if (!useList.includes(name)) useList.push(name)
+  }
+  if (useList.length > 0) config.use = useList
 
   // URL test options
   if (state.type === 'url-test' || state.type === 'fallback' || state.type === 'load-balance') {
@@ -297,6 +322,8 @@ export function configToFormState(config: ProxyGroupV3Config, allGroupNames: str
   const proxies = config.proxies || []
   const proxyOrder: string[] = []
   const staticProxies: string[] = []
+  const usedProviders = [...(config.use || [])]
+  const usedProviderSet = new Set(usedProviders)
 
   for (const p of proxies) {
     if (p === PROXY_NODES_MARKER || p === PROXY_PROVIDERS_MARKER || p === REGION_PROXY_GROUPS_MARKER) {
@@ -304,11 +331,14 @@ export function configToFormState(config: ProxyGroupV3Config, allGroupNames: str
     } else if (p === DIRECT_MARKER || p === REJECT_MARKER) {
       // 默认出站:DIRECT / REJECT 作为可拖拽项归入代理顺序
       proxyOrder.push(p)
-    } else if (allGroupNames.includes(p)) {
+    } else if (allGroupNames.includes(p) || usedProviderSet.has(p)) {
       proxyOrder.push(p)
     } else {
       staticProxies.push(p)
     }
+  }
+  for (const name of usedProviders) {
+    if (!proxyOrder.includes(name)) proxyOrder.push(name)
   }
 
   // include-all 等同于同时开启 include-all-proxies 和 include-all-providers
@@ -350,7 +380,8 @@ export function configToFormState(config: ProxyGroupV3Config, allGroupNames: str
     includeAllProviders,
     includeRegionProxyGroups: config['include-region-proxy-groups'] || false,
     includeDefaultOutbound,
-    includedProxyGroups: proxyOrder.filter(p => p !== PROXY_NODES_MARKER && p !== PROXY_PROVIDERS_MARKER && p !== REGION_PROXY_GROUPS_MARKER && p !== DIRECT_MARKER && p !== REJECT_MARKER),
+    usedProviders,
+    includedProxyGroups: proxyOrder.filter(p => p !== PROXY_NODES_MARKER && p !== PROXY_PROVIDERS_MARKER && p !== REGION_PROXY_GROUPS_MARKER && p !== DIRECT_MARKER && p !== REJECT_MARKER && !usedProviderSet.has(p)),
     proxyOrder,
     staticProxies,
     url: config.url || 'https://www.gstatic.com/generate_204',
@@ -402,6 +433,52 @@ export function updateProxyGroups(content: string, groups: ProxyGroupFormState[]
   if (!template) return content
 
   template['proxy-groups'] = groups.map(formStateToConfig)
+  return serializeTemplate(template)
+}
+
+function snapshotFromYAML(raw: Record<string, unknown>): ProxyProviderSnapshot | null {
+  const name = typeof raw.name === 'string' ? raw.name.trim() : ''
+  if (!name) return null
+  const subscriptionId = typeof raw.subscription_id === 'number' ? raw.subscription_id : Number(raw.subscription_id) || 0
+  return {
+    name,
+    subscriptionId,
+    filter: typeof raw.filter === 'string' ? raw.filter : '',
+    excludeFilter: typeof raw.exclude_filter === 'string' ? raw.exclude_filter : '',
+    processMode: typeof raw.process_mode === 'string' && raw.process_mode ? raw.process_mode : 'client',
+  }
+}
+
+export function extractProxyProviderSnapshots(content: string): ProxyProviderSnapshot[] {
+  const template = parseTemplate(content)
+  const raw = template?.['proxy-provider-snapshots']
+  if (!Array.isArray(raw)) return []
+  const snapshots: ProxyProviderSnapshot[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const snapshot = snapshotFromYAML(item as Record<string, unknown>)
+    if (snapshot && !snapshots.some(existing => existing.name === snapshot.name)) snapshots.push(snapshot)
+  }
+  return snapshots
+}
+
+export function updateProxyProviderSnapshots(content: string, snapshots: ProxyProviderSnapshot[]): string {
+  const template = parseTemplate(content)
+  if (!template) return content
+  if (snapshots.length === 0) {
+    delete template['proxy-provider-snapshots']
+  } else {
+    template['proxy-provider-snapshots'] = snapshots.map(snapshot => {
+      const entry: Record<string, unknown> = {
+        name: snapshot.name,
+        subscription_id: snapshot.subscriptionId,
+        process_mode: snapshot.processMode || 'client',
+      }
+      if (snapshot.filter) entry.filter = snapshot.filter
+      if (snapshot.excludeFilter) entry.exclude_filter = snapshot.excludeFilter
+      return entry
+    })
+  }
   return serializeTemplate(template)
 }
 
