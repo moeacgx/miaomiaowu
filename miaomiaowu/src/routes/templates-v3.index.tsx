@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 import { ProxyGroupEditor } from '@/components/template-v3/proxy-group-editor'
 import { TemplatePreview } from '@/components/template-v3/template-preview'
@@ -111,6 +112,10 @@ function TemplatesV3Page() {
   const [listPreviewLoading, setListPreviewLoading] = useState(false)
   const [listPreviewTemplateName, setListPreviewTemplateName] = useState<string | null>(null)
   const [listPreviewTemplateContent, setListPreviewTemplateContent] = useState('')
+
+  // Proxy collection selector state
+  const [isProxyCollectionSelectorOpen, setIsProxyCollectionSelectorOpen] = useState(false)
+  const [selectedProxyCollections, setSelectedProxyCollections] = useState<string[]>([])
 
   // Fetch templates list
   const { data: templateListData, isLoading } = useQuery<{ templates: string[]; visibility: Record<string, boolean>; sources?: Record<string, string> }>({
@@ -622,6 +627,45 @@ function TemplatesV3Page() {
     setIsDirty(true)
   }
 
+  // Handle add proxy collections
+  const handleAddProxyCollections = () => {
+    setIsProxyCollectionSelectorOpen(true)
+  }
+
+  const handleProxyCollectionsConfirm = () => {
+    // Add selected proxy collections to the first proxy group's proxyOrder if exists, otherwise create a new group
+    if (selectedProxyCollections.length === 0) {
+      toast.error('请选择至少一个代理集合')
+      return
+    }
+
+    if (proxyGroups.length === 0) {
+      // Create a new group with the selected providers
+      const newGroup = createDefaultFormState('新代理组 1')
+      newGroup.includeAllProviders = true
+      setProxyGroups([newGroup])
+    } else {
+      // Add to the first group's proxyOrder as providers
+      const updatedGroups = [...proxyGroups]
+      const firstGroup = updatedGroups[0]
+
+      // Add selected collections to proxyOrder if not already present
+      selectedProxyCollections.forEach((collectionName) => {
+        const providerMarker = `📦 ${collectionName}`
+        if (!firstGroup.proxyOrder.includes(providerMarker)) {
+          firstGroup.proxyOrder.push(providerMarker)
+        }
+      })
+
+      setProxyGroups(updatedGroups)
+    }
+
+    setSelectedProxyCollections([])
+    setIsProxyCollectionSelectorOpen(false)
+    setIsDirty(true)
+    toast.success(`已添加 ${selectedProxyCollections.length} 个代理集合`)
+  }
+
   // Handle preview
   const handlePreview = async () => {
     setIsPreviewLoading(true)
@@ -877,10 +921,24 @@ function TemplatesV3Page() {
                           variables={templateVariables}
                         />
                       ))}
-                      <Button variant="outline" className="w-full mt-2" onClick={handleAddProxyGroup}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        添加代理组
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" className="w-full mt-2">
+                            <Plus className="h-4 w-4 mr-2" />
+                            添加
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="center" className="w-48">
+                          <DropdownMenuItem onClick={handleAddProxyGroup}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            代理组
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={handleAddProxyCollections}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            代理集合
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </ScrollArea>
 				</TabsContent>}
@@ -923,6 +981,66 @@ function TemplatesV3Page() {
         onCreate={(name, content, sourceUrl) => createMutation.mutate({ name, content, sourceUrl })}
         isLoading={uploadMutation.isPending || createMutation.isPending}
       />
+
+      {/* Proxy Collection Selector Dialog */}
+      <Dialog open={isProxyCollectionSelectorOpen} onOpenChange={setIsProxyCollectionSelectorOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>选择代理集合</DialogTitle>
+            <DialogDescription>选择要添加到模板的代理集合（订阅）</DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh]">
+            <div className="space-y-2 p-1">
+              {proxyProviderConfigs && proxyProviderConfigs.length > 0 ? (
+                proxyProviderConfigs.map((collection: any) => {
+                  const sub = externalSubs.find(s => s.id === collection.external_subscription_id)
+                  return (
+                    <label
+                      key={collection.id}
+                      className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedProxyCollections.includes(collection.name)}
+                        onChange={(e) => {
+                          const collectionName = collection.name
+                          if (e.target.checked) {
+                            setSelectedProxyCollections([...selectedProxyCollections, collectionName])
+                          } else {
+                            setSelectedProxyCollections(selectedProxyCollections.filter(c => c !== collectionName))
+                          }
+                        }}
+                        className="h-4 w-4"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{collection.name}</div>
+                        {sub && (
+                          <div className="text-xs text-muted-foreground truncate">来自订阅: {sub.name}</div>
+                        )}
+                      </div>
+                    </label>
+                  )
+                })
+              ) : (
+                <div className="text-center text-muted-foreground py-8">
+                  暂无代理集合，请先在订阅管理中添加订阅
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setSelectedProxyCollections([])
+              setIsProxyCollectionSelectorOpen(false)
+            }}>
+              取消
+            </Button>
+            <Button onClick={handleProxyCollectionsConfirm} disabled={selectedProxyCollections.length === 0}>
+              确定 {selectedProxyCollections.length > 0 && `(${selectedProxyCollections.length})`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 从链接更新对话框 */}
       <TemplateSourceUpdateDialog
