@@ -633,12 +633,8 @@ function TemplatesV3Page() {
   // Handle add proxy collections
   const handleAddProxyCollections = () => {
     setTargetProxyGroupIndex(0)
-    // If no proxy groups exist, default to create new group mode
-    if (proxyGroups.length === 0) {
-      setCreateNewGroupMode(true)
-    } else {
-      setCreateNewGroupMode(false)
-    }
+    // Always default to create-new-group mode so the option is immediately visible
+    setCreateNewGroupMode(true)
     setGroupNameEdits({})
     setSelectedProxyCollections([])
     setIsProxyCollectionSelectorOpen(true)
@@ -659,7 +655,7 @@ function TemplatesV3Page() {
 
       selectedProxyCollections.forEach((collectionName) => {
         // Use edited name if available, otherwise use collection name
-        const finalGroupName = groupNameEdits[collectionName] || collectionName
+        const finalGroupName = (groupNameEdits[collectionName] || '').trim() || collectionName
 
         // Check for name conflict
         if (existingGroupNames.includes(finalGroupName) || newGroups.some(g => g.name === finalGroupName)) {
@@ -1086,42 +1082,79 @@ function TemplatesV3Page() {
       />
 
       {/* Proxy Collection Selector Dialog */}
-      <Dialog open={isProxyCollectionSelectorOpen} onOpenChange={setIsProxyCollectionSelectorOpen}>
+      <Dialog open={isProxyCollectionSelectorOpen} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedProxyCollections([])
+          setCreateNewGroupMode(true)
+          setGroupNameEdits({})
+          setTargetProxyGroupIndex(0)
+        }
+        setIsProxyCollectionSelectorOpen(open)
+      }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>选择代理集合</DialogTitle>
             <DialogDescription>选择要添加到模板的代理集合（订阅）</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[60vh]">
+          <ScrollArea className="max-h-[50vh]">
             <div className="space-y-2 p-1">
               {proxyProviderConfigs && proxyProviderConfigs.length > 0 ? (
                 proxyProviderConfigs.map((collection: any) => {
                   const sub = externalSubs.find(s => s.id === collection.external_subscription_id)
+                  const isChecked = selectedProxyCollections.includes(collection.name)
+                  const editedName = groupNameEdits[collection.name] !== undefined
+                    ? groupNameEdits[collection.name]
+                    : collection.name
+                  const finalName = (groupNameEdits[collection.name] || '').trim() || collection.name
+                  const isConflict = createNewGroupMode && isChecked && (
+                    proxyGroups.some(g => g.name === finalName) ||
+                    selectedProxyCollections.filter(c => c !== collection.name).some(c => {
+                      const otherFinal = (groupNameEdits[c] || '').trim() || c
+                      return otherFinal === finalName
+                    })
+                  )
                   return (
-                    <label
-                      key={collection.id}
-                      className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedProxyCollections.includes(collection.name)}
-                        onChange={(e) => {
-                          const collectionName = collection.name
-                          if (e.target.checked) {
-                            setSelectedProxyCollections([...selectedProxyCollections, collectionName])
-                          } else {
-                            setSelectedProxyCollections(selectedProxyCollections.filter(c => c !== collectionName))
-                          }
-                        }}
-                        className="h-4 w-4"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">{collection.name}</div>
-                        {sub && (
-                          <div className="text-xs text-muted-foreground truncate">来自订阅: {sub.name}</div>
-                        )}
-                      </div>
-                    </label>
+                    <div key={collection.id} className="border rounded-lg overflow-hidden">
+                      <label className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent/50 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            const collectionName = collection.name
+                            if (e.target.checked) {
+                              setSelectedProxyCollections([...selectedProxyCollections, collectionName])
+                            } else {
+                              setSelectedProxyCollections(selectedProxyCollections.filter(c => c !== collectionName))
+                              const { [collectionName]: _removed, ...rest } = groupNameEdits
+                              setGroupNameEdits(rest)
+                            }
+                          }}
+                          className="h-4 w-4"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{collection.name}</div>
+                          {sub && (
+                            <div className="text-xs text-muted-foreground truncate">来自订阅: {sub.name}</div>
+                          )}
+                        </div>
+                      </label>
+                      {createNewGroupMode && isChecked && (
+                        <div className="flex items-center gap-2 px-3 pb-2 bg-muted/20">
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">新组名：</span>
+                          <Input
+                            value={editedName}
+                            onChange={(e) => {
+                              setGroupNameEdits({ ...groupNameEdits, [collection.name]: e.target.value })
+                            }}
+                            className={cn('text-sm h-7', isConflict && 'border-red-500 focus-visible:ring-red-500')}
+                            placeholder={collection.name}
+                          />
+                          {isConflict && (
+                            <span className="text-xs text-red-500 whitespace-nowrap">重名</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )
                 })
               ) : (
@@ -1131,87 +1164,68 @@ function TemplatesV3Page() {
               )}
             </div>
           </ScrollArea>
-          <div className="p-3 border-t space-y-3">
-            <div>
-              <Label htmlFor="target-group-select" className="text-sm font-medium mb-2 block">添加到代理组</Label>
-              <select
-                id="target-group-select"
-                value={createNewGroupMode ? 'new' : targetProxyGroupIndex}
-                onChange={(e) => {
-                  if (e.target.value === 'new') {
-                    setCreateNewGroupMode(true)
-                    // Initialize edit names with collection names
-                    const edits: Record<string, string> = {}
-                    selectedProxyCollections.forEach(name => {
-                      edits[name] = name
-                    })
-                    setGroupNameEdits(edits)
-                  } else {
-                    setCreateNewGroupMode(false)
-                    setGroupNameEdits({})
-                    setTargetProxyGroupIndex(Number(e.target.value))
-                  }
-                }}
-                className="w-full p-2 border rounded-md text-sm"
-              >
-                <option value="new">新增代理组</option>
-                {proxyGroups.map((group, index) => (
-                  <option key={index} value={index}>{group.name}</option>
-                ))}
-              </select>
-            </div>
 
-            {createNewGroupMode && selectedProxyCollections.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs text-muted-foreground">
-                  将为每个勾选的代理集合创建新的代理组，可编辑名称：
-                </div>
-                {selectedProxyCollections.map((collectionName) => {
-                  const finalName = groupNameEdits[collectionName] || collectionName
-                  const isConflict = proxyGroups.some(g => g.name === finalName) ||
-                                     selectedProxyCollections.filter(c => c !== collectionName).some(c => (groupNameEdits[c] || c) === finalName)
-
-                  return (
-                    <div key={collectionName} className="flex items-center gap-2">
-                      <Input
-                        value={finalName}
-                        onChange={(e) => {
-                          setGroupNameEdits({
-                            ...groupNameEdits,
-                            [collectionName]: e.target.value
-                          })
-                        }}
-                        className={`text-sm ${isConflict ? 'border-red-500' : ''}`}
-                        placeholder="代理组名称"
+          <div className="border-t pt-3 space-y-2 px-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="radio"
+                name="proxy-add-mode"
+                checked={createNewGroupMode}
+                onChange={() => setCreateNewGroupMode(true)}
+                className="h-4 w-4"
+              />
+              <span className="text-sm font-medium">新增代理组，加入当前模板</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="radio"
+                name="proxy-add-mode"
+                checked={!createNewGroupMode}
+                onChange={() => setCreateNewGroupMode(false)}
+                className="h-4 w-4"
+              />
+              <span className="text-sm font-medium">添加到已有代理组</span>
+            </label>
+            {!createNewGroupMode && (
+              proxyGroups.length > 0 ? (
+                <div className="ml-6 space-y-1 mt-1">
+                  {proxyGroups.map((group, index) => (
+                    <label key={index} className="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-accent/50 select-none">
+                      <input
+                        type="radio"
+                        name="target-group"
+                        checked={targetProxyGroupIndex === index}
+                        onChange={() => setTargetProxyGroupIndex(index)}
+                        className="h-4 w-4"
                       />
-                      {isConflict && (
-                        <span className="text-xs text-red-500 whitespace-nowrap">重名</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+                      <span className="text-sm">{group.name}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="ml-6 text-xs text-muted-foreground mt-1">模板里还没有代理组</p>
+              )
             )}
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => {
               setSelectedProxyCollections([])
               setIsProxyCollectionSelectorOpen(false)
-              setCreateNewGroupMode(false)
+              setCreateNewGroupMode(true)
               setGroupNameEdits({})
               setTargetProxyGroupIndex(0)
             }}>
               取消
             </Button>
             {(() => {
-              // Check for name conflicts when in create new group mode
               let hasConflict = false
+              const cannotAddToGroup = !createNewGroupMode && proxyGroups.length === 0
               if (createNewGroupMode && selectedProxyCollections.length > 0) {
                 const existingGroupNames = proxyGroups.map(g => g.name)
                 const usedNames = new Set<string>()
-
                 for (const collectionName of selectedProxyCollections) {
-                  const finalName = groupNameEdits[collectionName] || collectionName
+                  const finalName = (groupNameEdits[collectionName] || '').trim() || collectionName
                   if (existingGroupNames.includes(finalName) || usedNames.has(finalName)) {
                     hasConflict = true
                     break
@@ -1219,14 +1233,13 @@ function TemplatesV3Page() {
                   usedNames.add(finalName)
                 }
               }
-
               return (
                 <Button
                   onClick={handleProxyCollectionsConfirm}
-                  disabled={selectedProxyCollections.length === 0 || hasConflict}
-                  title={hasConflict ? '存在重名的代理组' : ''}
+                  disabled={selectedProxyCollections.length === 0 || hasConflict || cannotAddToGroup}
+                  title={hasConflict ? '存在重名的代理组' : cannotAddToGroup ? '模板里还没有代理组' : ''}
                 >
-                  确定 {selectedProxyCollections.length > 0 && `(${selectedProxyCollections.length})`}
+                  确定{selectedProxyCollections.length > 0 ? ` (${selectedProxyCollections.length})` : ''}
                 </Button>
               )
             })()}
