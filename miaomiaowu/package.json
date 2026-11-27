@@ -8,6 +8,7 @@
     "build": "npm run build:only && node scripts/inject-site-config.js",
     "build:only": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:proxy-collections": "node --experimental-strip-types --test src/lib/template-v3-proxy-collections.test.ts",
     "preview": "vite preview",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
