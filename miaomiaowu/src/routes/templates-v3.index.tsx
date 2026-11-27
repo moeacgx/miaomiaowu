@@ -117,6 +117,8 @@ function TemplatesV3Page() {
   const [isProxyCollectionSelectorOpen, setIsProxyCollectionSelectorOpen] = useState(false)
   const [selectedProxyCollections, setSelectedProxyCollections] = useState<string[]>([])
   const [targetProxyGroupIndex, setTargetProxyGroupIndex] = useState<number>(0)
+  const [createNewGroupMode, setCreateNewGroupMode] = useState(false)
+  const [groupNameEdits, setGroupNameEdits] = useState<Record<string, string>>({})
 
   // Fetch templates list
   const { data: templateListData, isLoading } = useQuery<{ templates: string[]; visibility: Record<string, boolean>; sources?: Record<string, string> }>({
@@ -631,6 +633,9 @@ function TemplatesV3Page() {
   // Handle add proxy collections
   const handleAddProxyCollections = () => {
     setTargetProxyGroupIndex(0)
+    setCreateNewGroupMode(false)
+    setGroupNameEdits({})
+    setSelectedProxyCollections([])
     setIsProxyCollectionSelectorOpen(true)
   }
 
@@ -663,34 +668,73 @@ function TemplatesV3Page() {
       setProviderSnapshots([...providerSnapshots, ...newSnapshots])
     }
 
-    // Add to target proxy group or create new one
-    if (proxyGroups.length === 0) {
-      // Create a new group with the selected providers
-      const newGroup = createDefaultFormState('新代理组 1')
-      newGroup.proxyOrder = [...selectedProxyCollections]
-      newGroup.usedProviders = [...selectedProxyCollections]
-      setProxyGroups([newGroup])
-    } else {
-      // Add to the target group's proxyOrder and usedProviders
-      const updatedGroups = [...proxyGroups]
-      const targetGroup = updatedGroups[targetProxyGroupIndex]
+    if (createNewGroupMode) {
+      // Create a new group for each selected collection
+      const newGroups: ProxyGroupFormState[] = []
+      const existingGroupNames = proxyGroups.map(g => g.name)
+      let hasConflict = false
+      let conflictName = ''
 
       selectedProxyCollections.forEach((collectionName) => {
-        if (!targetGroup.proxyOrder.includes(collectionName)) {
-          targetGroup.proxyOrder.push(collectionName)
+        // Use edited name if available, otherwise use collection name
+        const finalGroupName = groupNameEdits[collectionName] || collectionName
+
+        // Check for name conflict
+        if (existingGroupNames.includes(finalGroupName) || newGroups.some(g => g.name === finalGroupName)) {
+          hasConflict = true
+          conflictName = finalGroupName
+          return
         }
-        if (!targetGroup.usedProviders.includes(collectionName)) {
-          targetGroup.usedProviders.push(collectionName)
-        }
+
+        const newGroup = createDefaultFormState(finalGroupName)
+        newGroup.proxyOrder = [collectionName]
+        newGroup.usedProviders = [collectionName]
+        newGroups.push(newGroup)
       })
 
-      setProxyGroups(updatedGroups)
-    }
+      if (hasConflict) {
+        toast.error(`代理组名称 "${conflictName}" 已存在，请修改后再确定`)
+        return
+      }
 
-    setSelectedProxyCollections([])
-    setIsProxyCollectionSelectorOpen(false)
-    setIsDirty(true)
-    toast.success(`已添加 ${selectedProxyCollections.length} 个代理集合`)
+      // If all names are valid, add all new groups
+      setProxyGroups([...proxyGroups, ...newGroups])
+      setSelectedProxyCollections([])
+      setIsProxyCollectionSelectorOpen(false)
+      setCreateNewGroupMode(false)
+      setGroupNameEdits({})
+      setIsDirty(true)
+      toast.success(`已创建 ${newGroups.length} 个代理组`)
+    } else {
+      // Add to target proxy group or create new one
+      if (proxyGroups.length === 0) {
+        // Create a new group with the selected providers
+        const newGroup = createDefaultFormState(selectedProxyCollections[0] || '新代理组 1')
+        newGroup.proxyOrder = [...selectedProxyCollections]
+        newGroup.usedProviders = [...selectedProxyCollections]
+        setProxyGroups([newGroup])
+      } else {
+        // Add to the target group's proxyOrder and usedProviders
+        const updatedGroups = [...proxyGroups]
+        const targetGroup = updatedGroups[targetProxyGroupIndex]
+
+        selectedProxyCollections.forEach((collectionName) => {
+          if (!targetGroup.proxyOrder.includes(collectionName)) {
+            targetGroup.proxyOrder.push(collectionName)
+          }
+          if (!targetGroup.usedProviders.includes(collectionName)) {
+            targetGroup.usedProviders.push(collectionName)
+          }
+        })
+
+        setProxyGroups(updatedGroups)
+      }
+
+      setSelectedProxyCollections([])
+      setIsProxyCollectionSelectorOpen(false)
+      setIsDirty(true)
+      toast.success(`已添加 ${selectedProxyCollections.length} 个代理集合`)
+    }
   }
 
   // Handle preview
@@ -1055,25 +1099,75 @@ function TemplatesV3Page() {
               )}
             </div>
           </ScrollArea>
-          {proxyGroups.length > 0 && (
-            <div className="p-3 border-t">
-              <Label htmlFor="target-group" className="text-sm font-medium mb-2 block">添加到代理组</Label>
+          <div className="p-3 border-t space-y-3">
+            <div>
+              <Label htmlFor="target-group-select" className="text-sm font-medium mb-2 block">添加到代理组</Label>
               <select
-                id="target-group"
-                value={targetProxyGroupIndex}
-                onChange={(e) => setTargetProxyGroupIndex(Number(e.target.value))}
+                id="target-group-select"
+                value={createNewGroupMode ? 'new' : targetProxyGroupIndex}
+                onChange={(e) => {
+                  if (e.target.value === 'new') {
+                    setCreateNewGroupMode(true)
+                    // Initialize edit names with collection names
+                    const edits: Record<string, string> = {}
+                    selectedProxyCollections.forEach(name => {
+                      edits[name] = name
+                    })
+                    setGroupNameEdits(edits)
+                  } else {
+                    setCreateNewGroupMode(false)
+                    setGroupNameEdits({})
+                    setTargetProxyGroupIndex(Number(e.target.value))
+                  }
+                }}
                 className="w-full p-2 border rounded-md text-sm"
               >
+                <option value="new">新增代理组</option>
                 {proxyGroups.map((group, index) => (
                   <option key={index} value={index}>{group.name}</option>
                 ))}
               </select>
             </div>
-          )}
+
+            {createNewGroupMode && selectedProxyCollections.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">
+                  将为每个勾选的代理集合创建新的代理组，可编辑名称：
+                </div>
+                {selectedProxyCollections.map((collectionName) => {
+                  const finalName = groupNameEdits[collectionName] || collectionName
+                  const isConflict = proxyGroups.some(g => g.name === finalName) ||
+                                     selectedProxyCollections.filter(c => c !== collectionName).some(c => (groupNameEdits[c] || c) === finalName)
+
+                  return (
+                    <div key={collectionName} className="flex items-center gap-2">
+                      <Input
+                        value={finalName}
+                        onChange={(e) => {
+                          setGroupNameEdits({
+                            ...groupNameEdits,
+                            [collectionName]: e.target.value
+                          })
+                        }}
+                        className={`text-sm ${isConflict ? 'border-red-500' : ''}`}
+                        placeholder="代理组名称"
+                      />
+                      {isConflict && (
+                        <span className="text-xs text-red-500 whitespace-nowrap">重名</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => {
               setSelectedProxyCollections([])
               setIsProxyCollectionSelectorOpen(false)
+              setCreateNewGroupMode(false)
+              setGroupNameEdits({})
+              setTargetProxyGroupIndex(0)
             }}>
               取消
             </Button>
