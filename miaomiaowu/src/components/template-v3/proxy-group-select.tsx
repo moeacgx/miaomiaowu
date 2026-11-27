@@ -16,6 +16,7 @@ import {
   REGION_PROXY_GROUPS_DISPLAY,
   DIRECT_DISPLAY,
   REJECT_DISPLAY,
+  ensureProxyOrderMarkers,
 } from '@/lib/template-v3-utils'
 import {
   DndContext,
@@ -212,41 +213,13 @@ export function ProxyGroupSelect({
     return true
   })
 
-  // Ensure markers are in value if they should be shown
-  const ensureMarkers = (newValue: string[]) => {
-    let result = [...newValue]
-    if (showRegionGroupsMarker && !result.includes(REGION_PROXY_GROUPS_MARKER)) {
-      result.push(REGION_PROXY_GROUPS_MARKER)
-    }
-    if (showNodesMarker && !result.includes(PROXY_NODES_MARKER)) {
-      result.push(PROXY_NODES_MARKER)
-    }
-    if (showProvidersMarker && !result.includes(PROXY_PROVIDERS_MARKER)) {
-      result.push(PROXY_PROVIDERS_MARKER)
-    }
-    // 默认出站:DIRECT / REJECT 成对加入(置于末尾)
-    if (showDefaultOutboundMarker) {
-      if (!result.includes(DIRECT_MARKER)) result.push(DIRECT_MARKER)
-      if (!result.includes(REJECT_MARKER)) result.push(REJECT_MARKER)
-    }
-    // Remove markers that shouldn't be shown
-    if (!showNodesMarker) {
-      result = result.filter(v => v !== PROXY_NODES_MARKER)
-    }
-    if (!showProvidersMarker) {
-      result = result.filter(v => v !== PROXY_PROVIDERS_MARKER)
-    }
-    if (!showRegionGroupsMarker) {
-      result = result.filter(v => v !== REGION_PROXY_GROUPS_MARKER)
-    }
-    if (!showDefaultOutboundMarker) {
-      result = result.filter(v => v !== DIRECT_MARKER && v !== REJECT_MARKER)
-    }
-    return result
-  }
-
   // Effect: ensure markers are present when props change
-  const effectiveValue = ensureMarkers(value)
+  const effectiveValue = ensureProxyOrderMarkers(value, {
+    showNodesMarker,
+    showProvidersMarker,
+    showRegionGroupsMarker,
+    showDefaultOutboundMarker,
+  })
   if (JSON.stringify(effectiveValue) !== JSON.stringify(value)) {
     // Schedule update for next tick to avoid render loop
     setTimeout(() => onChange(effectiveValue), 0)

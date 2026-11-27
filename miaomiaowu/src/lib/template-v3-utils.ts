@@ -587,3 +587,189 @@ export function createBlankTemplate(): string {
   }
   return serializeTemplate(template)
 }
+
+// 占位符和 Clash 内置出站不是代理集合，不能写进 use。
+const NON_PROVIDER_ORDER_ITEMS = new Set<string>([
+  PROXY_NODES_MARKER,
+  PROXY_PROVIDERS_MARKER,
+  REGION_PROXY_GROUPS_MARKER,
+  DIRECT_MARKER,
+  REJECT_MARKER,
+])
+
+export interface ProxyCollectionSource {
+  name: string
+  subscriptionId: number
+  filter?: string
+  excludeFilter?: string
+  processMode?: string
+}
+
+// 空的编辑名回退成集合原名，不另起「新代理组 N」。
+export function resolveNewProxyGroupName(collectionName: string, editedName: string | undefined): string {
+  const trimmed = (editedName ?? '').trim()
+  return trimmed || collectionName
+}
+
+// 重名只比较代理组名字。集合已经出现在别的组的 use 里不算重名。
+export function conflictingNewProxyGroupNames(
+  selectedNames: readonly string[],
+  nameEdits: Readonly<Record<string, string | undefined>>,
+  existingGroupNames: readonly string[],
+): Set<string> {
+  const existing = new Set(existingGroupNames)
+  const seen = new Map<string, number>()
+  const conflicts = new Set<string>()
+  for (const collectionName of selectedNames) {
+    const finalName = resolveNewProxyGroupName(collectionName, nameEdits[collectionName])
+    if (existing.has(finalName)) conflicts.add(finalName)
+    seen.set(finalName, (seen.get(finalName) ?? 0) + 1)
+  }
+  for (const [finalName, count] of seen) {
+    if (count > 1) conflicts.add(finalName)
+  }
+  return conflicts
+}
+
+export function snapshotsForSelectedCollections(
+  selectedNames: readonly string[],
+  existingSnapshots: readonly ProxyProviderSnapshot[],
+  collections: readonly ProxyCollectionSource[],
+): ProxyProviderSnapshot[] {
+  const existing = new Set(existingSnapshots.map((snapshot) => snapshot.name))
+  const added: ProxyProviderSnapshot[] = []
+  for (const collectionName of selectedNames) {
+    if (existing.has(collectionName)) continue
+    const config = collections.find((item) => item.name === collectionName)
+    if (!config) continue
+    added.push({
+      name: config.name,
+      subscriptionId: config.subscriptionId || 0,
+      filter: config.filter || '',
+      excludeFilter: config.excludeFilter || '',
+      processMode: config.processMode || 'client',
+    })
+    existing.add(config.name)
+  }
+  return added
+}
+
+export type PlanNewProxyGroupsResult =
+  | { ok: true; groups: ProxyGroupFormState[]; snapshotsToAdd: ProxyProviderSnapshot[] }
+  | { ok: false; conflictName: string }
+
+// 每个勾选的集合单独成为一个代理组。组名可以改，use 和快照仍用集合原名。
+// 不把集合塞进已有组，也不把新组塞进「节点选择」。
+export function planNewProxyGroupsFromCollections(input: {
+  selectedNames: readonly string[]
+  nameEdits: Readonly<Record<string, string | undefined>>
+  existingGroupNames: readonly string[]
+  existingSnapshots: readonly ProxyProviderSnapshot[]
+  collections: readonly ProxyCollectionSource[]
+}): PlanNewProxyGroupsResult {
+  const conflicts = conflictingNewProxyGroupNames(input.selectedNames, input.nameEdits, input.existingGroupNames)
+  if (conflicts.size > 0) {
+    for (const collectionName of input.selectedNames) {
+      const finalName = resolveNewProxyGroupName(collectionName, input.nameEdits[collectionName])
+      if (conflicts.has(finalName)) return { ok: false, conflictName: finalName }
+    }
+  }
+
+  const groups = input.selectedNames.map((collectionName) => {
+    const group = createDefaultFormState(resolveNewProxyGroupName(collectionName, input.nameEdits[collectionName]))
+    // 引用的是集合原名，不是改过的组名。集合自己的 filter 只留在 snapshot。
+    group.proxyOrder = [collectionName]
+    group.usedProviders = [collectionName]
+    return group
+  })
+
+  return {
+    ok: true,
+    groups,
+    snapshotsToAdd: snapshotsForSelectedCollections(input.selectedNames, input.existingSnapshots, input.collections),
+  }
+}
+
+// 「添加到已有代理组」：把集合原名追加到所选组，不新建、不改组名。
+export function appendCollectionsToProxyGroup(group: ProxyGroupFormState, collectionNames: readonly string[]): ProxyGroupFormState {
+  const proxyOrder = [...group.proxyOrder]
+  const usedProviders = [...(group.usedProviders ?? [])]
+  for (const name of collectionNames) {
+    if (!proxyOrder.includes(name)) proxyOrder.push(name)
+    if (!usedProviders.includes(name)) usedProviders.push(name)
+  }
+  return { ...group, proxyOrder, usedProviders }
+}
+
+// 组名等于集合名不是自引用。自引用只从其他代理组列表里排除本组。
+export function providerNamesForGroup(providerNames: readonly string[], groupName: string): string[] {
+  return providerNames.filter((name) => name !== '' || name === groupName)
+}
+
+// 代理顺序变化时重算 use。已经绑定的集合即使此刻不在 providerNames 里也要留下，
+// 否则过滤关键字打开节点占位符时会把 use 清掉。用户从顺序里删掉芯片则不再保留。
+export function reconcileUsedProviders(
+  nextOrder: readonly string[],
+  providerNames: readonly string[],
+  previousUsed: readonly string[] = [],
+): string[] {
+  const providers = new Set(providerNames)
+  const previouslyUsed = new Set(previousUsed)
+  const used: string[] = []
+  for (const name of nextOrder) {
+    if (NON_PROVIDER_ORDER_ITEMS.has(name) || used.includes(name)) continue
+    if (providers.has(name) || previouslyUsed.has(name)) used.push(name)
+  }
+  return used
+}
+
+export function applyProxyOrderFromEditor(
+  group: ProxyGroupFormState,
+  nextOrder: readonly string[],
+  providerNames: readonly string[],
+): ProxyGroupFormState {
+  const proxyOrder = [...nextOrder]
+  return {
+    ...group,
+    proxyOrder,
+    usedProviders: reconcileUsedProviders(proxyOrder, providerNames, group.usedProviders ?? []),
+  }
+}
+
+export function ensureProxyOrderMarkers(
+  order: readonly string[],
+  flags: {
+    showNodesMarker: boolean
+    showProvidersMarker: boolean
+    showRegionGroupsMarker: boolean
+    showDefaultOutboundMarker: boolean
+  },
+): string[] {
+  let result = [...order]
+  if (flags.showRegionGroupsMarker && !result.includes(REGION_PROXY_GROUPS_MARKER)) {
+    result.push(REGION_PROXY_GROUPS_MARKER)
+  }
+  if (flags.showNodesMarker && !result.includes(PROXY_NODES_MARKER)) {
+    result.push(PROXY_NODES_MARKER)
+  }
+  if (flags.showProvidersMarker && !result.includes(PROXY_PROVIDERS_MARKER)) {
+    result.push(PROXY_PROVIDERS_MARKER)
+  }
+  if (flags.showDefaultOutboundMarker) {
+    if (!result.includes(DIRECT_MARKER)) result.push(DIRECT_MARKER)
+    if (!result.includes(REJECT_MARKER)) result.push(REJECT_MARKER)
+  }
+  if (!flags.showNodesMarker) {
+    result = result.filter((item) => item !== PROXY_NODES_MARKER)
+  }
+  if (!flags.showProvidersMarker) {
+    result = result.filter((item) => item !== PROXY_PROVIDERS_MARKER)
+  }
+  if (!flags.showRegionGroupsMarker) {
+    result = result.filter((item) => item !== REGION_PROXY_GROUPS_MARKER)
+  }
+  if (!flags.showDefaultOutboundMarker) {
+    result = result.filter((item) => item !== DIRECT_MARKER && item !== REJECT_MARKER)
+  }
+  return result
+}

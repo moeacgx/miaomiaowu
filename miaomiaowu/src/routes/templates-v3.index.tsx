@@ -33,9 +33,14 @@ import { TemplateSourceUpdateDialog } from '@/components/template-v3/template-so
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
+  appendCollectionsToProxyGroup,
+  conflictingNewProxyGroupNames,
   extractProxyGroups,
   extractProxyProviderSnapshots,
   extractTemplateVariables,
+  planNewProxyGroupsFromCollections,
+  resolveNewProxyGroupName,
+  snapshotsForSelectedCollections,
   updateProxyGroups,
   updateProxyProviderSnapshots,
   createDefaultFormState,
@@ -216,6 +221,18 @@ function TemplatesV3Page() {
     enabled: isEditorOpen && !isTextTemplate,
   })
   const externalSubs = externalSubsData ?? []
+  const collectionSources = proxyProviderConfigs.map((config) => ({
+    name: config.name,
+    subscriptionId: config.external_subscription_id || 0,
+    filter: config.filter || '',
+    excludeFilter: config.exclude_filter || '',
+    processMode: config.process_mode || '',
+  }))
+  const newGroupNameConflicts = conflictingNewProxyGroupNames(
+    selectedProxyCollections,
+    groupNameEdits,
+    proxyGroups.map((group) => group.name),
+  )
 
   // Update template mutation
   const updateMutation = useMutation({
@@ -646,123 +663,67 @@ function TemplatesV3Page() {
       return
     }
 
+    const planInput = {
+      selectedNames: selectedProxyCollections,
+      nameEdits: groupNameEdits,
+      existingGroupNames: proxyGroups.map((group) => group.name),
+      existingSnapshots: providerSnapshots,
+      collections: collectionSources,
+    }
+
     if (createNewGroupMode) {
-      // Validate all names BEFORE making any state changes
-      const newGroups: ProxyGroupFormState[] = []
-      const existingGroupNames = proxyGroups.map(g => g.name)
-      let hasConflict = false
-      let conflictName = ''
-
-      selectedProxyCollections.forEach((collectionName) => {
-        // Use edited name if available, otherwise use collection name
-        const finalGroupName = (groupNameEdits[collectionName] || '').trim() || collectionName
-
-        // Check for name conflict
-        if (existingGroupNames.includes(finalGroupName) || newGroups.some(g => g.name === finalGroupName)) {
-          hasConflict = true
-          conflictName = finalGroupName
-          return
-        }
-
-        const newGroup = createDefaultFormState(finalGroupName)
-        newGroup.proxyOrder = [collectionName]
-        newGroup.usedProviders = [collectionName]
-        newGroups.push(newGroup)
-      })
-
-      if (hasConflict) {
-        toast.error(`代理组名称 "${conflictName}" 已存在，请修改后再确定`)
+      const planned = planNewProxyGroupsFromCollections(planInput)
+      if (!planned.ok) {
+        toast.error(`代理组名称 "${planned.conflictName}" 已存在，请修改后再确定`)
         return
       }
 
-      // Validation passed, now add snapshots
-      const newSnapshots: ProxyProviderSnapshot[] = []
-      selectedProxyCollections.forEach((collectionName) => {
-        // Check if already exists in providerSnapshots
-        const exists = providerSnapshots.some(snapshot => snapshot.name === collectionName)
-        if (!exists) {
-          const config = proxyProviderConfigs.find(c => c.name === collectionName)
-          if (config) {
-            newSnapshots.push({
-              name: config.name,
-              subscriptionId: config.external_subscription_id || 0,
-              filter: config.filter || '',
-              excludeFilter: config.exclude_filter || '',
-              processMode: config.process_mode || 'client',
-            })
-          }
-        }
-      })
-
-      if (newSnapshots.length > 0) {
-        setProviderSnapshots([...providerSnapshots, ...newSnapshots])
+      if (planned.snapshotsToAdd.length > 0) {
+        setProviderSnapshots([...providerSnapshots, ...planned.snapshotsToAdd])
       }
-
-      // All validations passed, now update proxy groups
-      setProxyGroups([...proxyGroups, ...newGroups])
+      // 只追加新组。不写入「节点选择」或其他已有组。
+      setProxyGroups([...proxyGroups, ...planned.groups])
       setSelectedProxyCollections([])
       setIsProxyCollectionSelectorOpen(false)
       setCreateNewGroupMode(false)
       setGroupNameEdits({})
       setIsDirty(true)
-      toast.success(`已创建 ${newGroups.length} 个代理组`)
-    } else {
-      // Add to target proxy group or create new one
-      // Add selected collections to providerSnapshots first
-      const newSnapshots: ProxyProviderSnapshot[] = []
-      selectedProxyCollections.forEach((collectionName) => {
-        // Check if already exists in providerSnapshots
-        const exists = providerSnapshots.some(snapshot => snapshot.name === collectionName)
-        if (!exists) {
-          const config = proxyProviderConfigs.find(c => c.name === collectionName)
-          if (config) {
-            newSnapshots.push({
-              name: config.name,
-              subscriptionId: config.external_subscription_id || 0,
-              filter: config.filter || '',
-              excludeFilter: config.exclude_filter || '',
-              processMode: config.process_mode || 'client',
-            })
-          }
-        }
+      toast.success(`已创建 ${planned.groups.length} 个代理组`)
+      return
+    }
+
+    const snapshotsToAdd = snapshotsForSelectedCollections(
+      selectedProxyCollections,
+      providerSnapshots,
+      collectionSources,
+    )
+    if (snapshotsToAdd.length > 0) {
+      setProviderSnapshots([...providerSnapshots, ...snapshotsToAdd])
+    }
+
+    if (proxyGroups.length === 0) {
+      const planned = planNewProxyGroupsFromCollections({
+        ...planInput,
+        nameEdits: {},
+        existingGroupNames: [],
       })
-
-      if (newSnapshots.length > 0) {
-        setProviderSnapshots([...providerSnapshots, ...newSnapshots])
-      }
-
-      if (proxyGroups.length === 0) {
-        // Create a new group with the selected providers (each collection gets its own group)
-        const newGroups: ProxyGroupFormState[] = []
-        selectedProxyCollections.forEach((collectionName) => {
-          const newGroup = createDefaultFormState(collectionName)
-          newGroup.proxyOrder = [collectionName]
-          newGroup.usedProviders = [collectionName]
-          newGroups.push(newGroup)
-        })
-        setProxyGroups(newGroups)
-      } else {
-        // Add to the target group's proxyOrder and usedProviders
-        const updatedGroups = [...proxyGroups]
-        const targetGroup = updatedGroups[targetProxyGroupIndex]
-
-        selectedProxyCollections.forEach((collectionName) => {
-          if (!targetGroup.proxyOrder.includes(collectionName)) {
-            targetGroup.proxyOrder.push(collectionName)
-          }
-          if (!targetGroup.usedProviders.includes(collectionName)) {
-            targetGroup.usedProviders.push(collectionName)
-          }
-        })
-
+      if (planned.ok) setProxyGroups(planned.groups)
+    } else {
+      const updatedGroups = [...proxyGroups]
+      const targetGroup = updatedGroups[targetProxyGroupIndex]
+      if (targetGroup) {
+        updatedGroups[targetProxyGroupIndex] = appendCollectionsToProxyGroup(
+          targetGroup,
+          selectedProxyCollections,
+        )
         setProxyGroups(updatedGroups)
       }
-
-      setSelectedProxyCollections([])
-      setIsProxyCollectionSelectorOpen(false)
-      setIsDirty(true)
-      toast.success(`已添加 ${selectedProxyCollections.length} 个代理集合`)
     }
+
+    setSelectedProxyCollections([])
+    setIsProxyCollectionSelectorOpen(false)
+    setIsDirty(true)
+    toast.success(`已添加 ${selectedProxyCollections.length} 个代理集合`)
   }
 
   // Handle preview
@@ -1105,14 +1066,11 @@ function TemplatesV3Page() {
                   const editedName = groupNameEdits[collection.name] !== undefined
                     ? groupNameEdits[collection.name]
                     : collection.name
-                  const finalName = (groupNameEdits[collection.name] || '').trim() || collection.name
-                  const isConflict = createNewGroupMode && isChecked && (
-                    proxyGroups.some(g => g.name === finalName) ||
-                    selectedProxyCollections.filter(c => c !== collection.name).some(c => {
-                      const otherFinal = (groupNameEdits[c] || '').trim() || c
-                      return otherFinal === finalName
-                    })
+                  const finalName = resolveNewProxyGroupName(
+                    collection.name,
+                    groupNameEdits[collection.name],
                   )
+                  const isConflict = createNewGroupMode && isChecked && newGroupNameConflicts.has(finalName)
                   return (
                     <div key={collection.id} className="border rounded-lg overflow-hidden">
                       <label className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent/50 transition-colors">
@@ -1218,31 +1176,23 @@ function TemplatesV3Page() {
             }}>
               取消
             </Button>
-            {(() => {
-              let hasConflict = false
-              const cannotAddToGroup = !createNewGroupMode && proxyGroups.length === 0
-              if (createNewGroupMode && selectedProxyCollections.length > 0) {
-                const existingGroupNames = proxyGroups.map(g => g.name)
-                const usedNames = new Set<string>()
-                for (const collectionName of selectedProxyCollections) {
-                  const finalName = (groupNameEdits[collectionName] || '').trim() || collectionName
-                  if (existingGroupNames.includes(finalName) || usedNames.has(finalName)) {
-                    hasConflict = true
-                    break
-                  }
-                  usedNames.add(finalName)
-                }
+            <Button
+              onClick={handleProxyCollectionsConfirm}
+              disabled={
+                selectedProxyCollections.length === 0 ||
+                (createNewGroupMode && newGroupNameConflicts.size > 0) ||
+                (!createNewGroupMode && proxyGroups.length === 0)
               }
-              return (
-                <Button
-                  onClick={handleProxyCollectionsConfirm}
-                  disabled={selectedProxyCollections.length === 0 || hasConflict || cannotAddToGroup}
-                  title={hasConflict ? '存在重名的代理组' : cannotAddToGroup ? '模板里还没有代理组' : ''}
-                >
-                  确定{selectedProxyCollections.length > 0 ? ` (${selectedProxyCollections.length})` : ''}
-                </Button>
-              )
-            })()}
+              title={
+                createNewGroupMode && newGroupNameConflicts.size > 0
+                  ? '存在重名的代理组'
+                  : !createNewGroupMode && proxyGroups.length === 0
+                    ? '模板里还没有代理组'
+                    : ''
+              }
+            >
+              确定{selectedProxyCollections.length > 0 ? ` (${selectedProxyCollections.length})` : ''}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

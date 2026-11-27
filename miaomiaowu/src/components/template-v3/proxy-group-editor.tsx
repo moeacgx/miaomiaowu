@@ -13,8 +13,10 @@ import { ProxyTypeSelect } from './proxy-type-select'
 import { ProxyGroupSelect } from './proxy-group-select'
 import {
   PROXY_GROUP_TYPES,
+  applyProxyOrderFromEditor,
   hasProxyNodes,
   hasProxyProviders,
+  providerNamesForGroup,
   type ProxyGroupFormState,
   type ProxyGroupType,
 } from '@/lib/template-v3-utils'
@@ -69,6 +71,8 @@ export function ProxyGroupEditor({
   }
 
   const needsUrlTestOptions = ['url-test', 'fallback', 'load-balance'].includes(group.type)
+  // 同名集合不是自引用，不能从可选集合里拿掉。
+  const providersForGroup = providerNamesForGroup(providerNames, group.name)
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -283,11 +287,10 @@ export function ProxyGroupEditor({
                 label="代理顺序 (拖拽排序)"
                 value={group.proxyOrder}
                 onChange={(v) => {
-                  const used = v.filter(name => providerNames.includes(name))
-                  onChange(index, { ...group, proxyOrder: v, usedProviders: used })
+                  onChange(index, applyProxyOrderFromEditor(group, v, providersForGroup))
                 }}
                 availableGroups={allGroupNames.filter(n => n !== group.name)}
-                availableProviders={providerNames.filter(n => n !== group.name)}
+                availableProviders={providersForGroup}
                 showNodesMarker={hasProxyNodes(group)}
                 showProvidersMarker={hasProxyProviders(group)}
                 showRegionGroupsMarker={group.includeRegionProxyGroups}
