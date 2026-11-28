@@ -71,8 +71,9 @@ export function ProxyGroupEditor({
   }
 
   const needsUrlTestOptions = ['url-test', 'fallback', 'load-balance'].includes(group.type)
-  // 同名集合不是自引用，不能从可选集合里拿掉。
-  const providersForGroup = providerNamesForGroup(providerNames, group.name)
+  // 同名集合不是自引用，子组仍要看见自己的集合。别的组占用了这个名字时，父组不再把它当集合。
+  const otherGroupNames = allGroupNames.filter(name => name !== group.name)
+  const providersForGroup = providerNamesForGroup(providerNames, group.name, otherGroupNames)
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -287,7 +288,7 @@ export function ProxyGroupEditor({
                 label="代理顺序 (拖拽排序)"
                 value={group.proxyOrder}
                 onChange={(v) => {
-                  onChange(index, applyProxyOrderFromEditor(group, v, providersForGroup))
+                  onChange(index, applyProxyOrderFromEditor(group, v, providersForGroup, otherGroupNames))
                 }}
                 availableGroups={allGroupNames.filter(n => n !== group.name)}
                 availableProviders={providersForGroup}

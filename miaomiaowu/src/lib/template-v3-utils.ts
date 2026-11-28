@@ -322,7 +322,9 @@ export function configToFormState(config: ProxyGroupV3Config, allGroupNames: str
   const proxies = config.proxies || []
   const proxyOrder: string[] = []
   const staticProxies: string[] = []
-  const usedProviders = [...(config.use || [])]
+  // 同名项如果已经是另一个代理组，打开时就改回组引用。以前写进 use 也不能继续当成集合。
+  const rawUse = [...(config.use || [])]
+  const usedProviders = usedProvidersRespectingGroups(rawUse, config.name, allGroupNames)
   const usedProviderSet = new Set(usedProviders)
 
   for (const p of proxies) {
@@ -337,7 +339,7 @@ export function configToFormState(config: ProxyGroupV3Config, allGroupNames: str
       staticProxies.push(p)
     }
   }
-  for (const name of usedProviders) {
+  for (const name of rawUse) {
     if (!proxyOrder.includes(name)) proxyOrder.push(name)
   }
 
@@ -432,7 +434,8 @@ export function updateProxyGroups(content: string, groups: ProxyGroupFormState[]
   const template = parseTemplate(content)
   if (!template) return content
 
-  template['proxy-groups'] = groups.map(formStateToConfig)
+  const names = groups.map(group => group.name)
+  template['proxy-groups'] = groups.map(group => formStateToConfig(dropCollidingUsedProviders(group, names)))
   return serializeTemplate(template)
 }
 
@@ -492,7 +495,8 @@ export const REJECT_DISPLAY = '🚫 拒绝 (REJECT)'
 
 // Generate proxy-groups YAML preview from form states
 export function generateProxyGroupsPreview(groups: ProxyGroupFormState[]): string {
-  const configs = groups.map(formStateToConfig).map(config => {
+  const names = groups.map(group => group.name)
+  const configs = groups.map(group => formStateToConfig(dropCollidingUsedProviders(group, names))).map(config => {
     // Replace markers with Chinese display names for preview
     if (config.proxies) {
       config.proxies = config.proxies.map(p => {
@@ -701,23 +705,66 @@ export function appendCollectionsToProxyGroup(group: ProxyGroupFormState, collec
   return { ...group, proxyOrder, usedProviders }
 }
 
+// 另一个代理组（不是本组）已经占用这个名字。本组自己的同名集合不算占用。
+function namesClaimedByOtherGroups(groupName: string, groupNames: readonly string[]): Set<string> {
+  const claimed = new Set<string>()
+  for (const name of groupNames) {
+    if (name !== groupName) claimed.add(name)
+  }
+  return claimed
+}
+
+// 名字冲突时，其它组只能引用代理组，不能再把同名集合留在 use 里。
+function usedProvidersRespectingGroups(
+  usedProviders: readonly string[],
+  groupName: string,
+  groupNames: readonly string[],
+): string[] {
+  const claimed = namesClaimedByOtherGroups(groupName, groupNames)
+  const used: string[] = []
+  for (const name of usedProviders) {
+    if (claimed.has(name) || used.includes(name)) continue
+    used.push(name)
+  }
+  return used
+}
+
+function dropCollidingUsedProviders(group: ProxyGroupFormState, groupNames: readonly string[]): ProxyGroupFormState {
+  const usedProviders = usedProvidersRespectingGroups(group.usedProviders ?? [], group.name, groupNames)
+  const current = group.usedProviders ?? []
+  if (current.length === usedProviders.length && current.every((name, index) => name === usedProviders[index])) {
+    return group
+  }
+  return { ...group, usedProviders }
+}
+
 // 组名等于集合名不是自引用。自引用只从其他代理组列表里排除本组。
-export function providerNamesForGroup(providerNames: readonly string[], groupName: string): string[] {
-  return providerNames.filter((name) => name !== '' || name === groupName)
+// 别的组已经叫这个名字时，父组的集合列表里不再提供它，芯片也就不会涂成集合的绿色。
+export function providerNamesForGroup(
+  providerNames: readonly string[],
+  groupName: string,
+  otherGroupNames: readonly string[] = [],
+): string[] {
+  const claimed = namesClaimedByOtherGroups(groupName, otherGroupNames)
+  return providerNames.filter((name) => (name !== '' || name === groupName) && !claimed.has(name))
 }
 
 // 代理顺序变化时重算 use。已经绑定的集合即使此刻不在 providerNames 里也要留下，
 // 否则过滤关键字打开节点占位符时会把 use 清掉。用户从顺序里删掉芯片则不再保留。
+// 已有同名代理组时这一项是组引用，previouslyUsed 不能把它留成 use。
 export function reconcileUsedProviders(
   nextOrder: readonly string[],
   providerNames: readonly string[],
   previousUsed: readonly string[] = [],
+  otherGroupNames: readonly string[] = [],
 ): string[] {
   const providers = new Set(providerNames)
   const previouslyUsed = new Set(previousUsed)
+  const claimed = new Set(otherGroupNames)
   const used: string[] = []
   for (const name of nextOrder) {
     if (NON_PROVIDER_ORDER_ITEMS.has(name) || used.includes(name)) continue
+    if (claimed.has(name)) continue
     if (providers.has(name) || previouslyUsed.has(name)) used.push(name)
   }
   return used
@@ -727,12 +774,14 @@ export function applyProxyOrderFromEditor(
   group: ProxyGroupFormState,
   nextOrder: readonly string[],
   providerNames: readonly string[],
+  otherGroupNames: readonly string[] = [],
 ): ProxyGroupFormState {
   const proxyOrder = [...nextOrder]
+  const claimed = [...namesClaimedByOtherGroups(group.name, otherGroupNames)]
   return {
     ...group,
     proxyOrder,
-    usedProviders: reconcileUsedProviders(proxyOrder, providerNames, group.usedProviders ?? []),
+    usedProviders: reconcileUsedProviders(proxyOrder, providerNames, group.usedProviders ?? [], claimed),
   }
 }
 
