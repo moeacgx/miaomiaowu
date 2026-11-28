@@ -13,7 +13,6 @@ import { ProxyTypeSelect } from './proxy-type-select'
 import { ProxyGroupSelect } from './proxy-group-select'
 import {
   PROXY_GROUP_TYPES,
-  applyProxyOrderFromEditor,
   hasProxyNodes,
   hasProxyProviders,
   providerNamesForGroup,
@@ -71,9 +70,8 @@ export function ProxyGroupEditor({
   }
 
   const needsUrlTestOptions = ['url-test', 'fallback', 'load-balance'].includes(group.type)
-  // 同名集合不是自引用，子组仍要看见自己的集合。别的组占用了这个名字时，父组不再把它当集合。
-  const otherGroupNames = allGroupNames.filter(name => name !== group.name)
-  const providersForGroup = providerNamesForGroup(providerNames, group.name, otherGroupNames)
+  // 集合下拉包含和别的组同名的快照。点哪一栏由选择器写入 usedProviders，不在这里推断。
+  const providersForGroup = providerNamesForGroup(providerNames, group.name, allGroupNames.filter(name => name !== group.name))
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -287,8 +285,9 @@ export function ProxyGroupEditor({
               <ProxyGroupSelect
                 label="代理顺序 (拖拽排序)"
                 value={group.proxyOrder}
-                onChange={(v) => {
-                  onChange(index, applyProxyOrderFromEditor(group, v, providersForGroup, otherGroupNames))
+                usedProviders={group.usedProviders}
+                onChange={(order, used) => {
+                  onChange(index, { ...group, proxyOrder: order, usedProviders: used })
                 }}
                 availableGroups={allGroupNames.filter(n => n !== group.name)}
                 availableProviders={providersForGroup}

@@ -12,6 +12,9 @@ import {
   hasProxyProviders,
   planNewProxyGroupsFromCollections,
   providerNamesForGroup,
+  proxyReferenceChecked,
+  selectProxyReference,
+  snapshotsAfterGroupDelete,
   updateProxyGroups,
   updateProxyProviderSnapshots,
   type ProxyCollectionSource,
@@ -338,7 +341,7 @@ proxy-groups:
     assert.equal(selector?.staticProxies.includes('自动选择'), false)
   })
 
-  it('同名集合在父组里是组引用，子组仍 use 集合', () => {
+  it('点代理集合时，即使另一个组同名也写入 use，不放进 proxies', () => {
     const UK = '良心云-🇬🇧英国节点'
     const ukCollection: ProxyCollectionSource = {
       name: UK,
@@ -361,40 +364,85 @@ proxy-groups:
     assert.equal(child.name, UK)
     assert.deepEqual(child.usedProviders, [UK])
     assert.deepEqual(providerNamesForGroup([UK], child.name, ['节点选择']), [UK])
+    // 父组的集合列表也要列出这个同名集合。
+    assert.deepEqual(providerNamesForGroup([UK], '节点选择', [UK]), [UK])
 
-    // 父组顺序里已有这个名字，而且曾经把它存成 use。重算时同名组压过 previouslyUsed。
     let parent = createDefaultFormState('节点选择')
-    parent = {
-      ...parent,
-      proxyOrder: ['故障转移', UK],
-      usedProviders: [UK],
-    }
+    parent = selectProxyReference(parent, UK, 'provider')
     parent = applyProxyOrderFromEditor(parent, parent.proxyOrder, [UK], [UK])
     assert.equal(parent.proxyOrder.includes(UK), true)
-    assert.equal(parent.usedProviders.includes(UK), false)
-    assert.deepEqual(parent.usedProviders, [])
-    // 父组的集合列表不再提供这个同名集合，芯片不会按集合涂绿。
-    assert.deepEqual(providerNamesForGroup([UK], parent.name, [UK]), [])
+    assert.deepEqual(parent.usedProviders, [UK])
+    assert.equal(proxyReferenceChecked(parent.proxyOrder, parent.usedProviders, UK, 'provider'), true)
+    assert.equal(proxyReferenceChecked(parent.proxyOrder, parent.usedProviders, UK, 'group'), false)
+
+    const picked = formStateToConfig(parent)
+    assert.deepEqual(picked.use, [UK])
+    assert.ok(!picked.proxies?.includes(UK))
 
     const saved = saveAndReopen([parent, child], planned.snapshotsToAdd)
     const reopenedParent = saved.groups.find((group) => group.name === '节点选择')
     const reopenedChild = saved.groups.find((group) => group.name === UK)
     assert.ok(reopenedParent)
     assert.ok(reopenedChild)
+    assert.deepEqual(reopenedParent?.usedProviders, [UK])
     assert.equal(reopenedParent?.proxyOrder.includes(UK), true)
-    assert.equal(reopenedParent?.usedProviders.includes(UK), false)
     assert.deepEqual(reopenedChild?.usedProviders, [UK])
-
-    const parentConfig = formStateToConfig(reopenedParent!)
-    const childConfig = formStateToConfig(reopenedChild!)
-    assert.equal(parentConfig.proxies?.includes(UK), true)
-    assert.equal(parentConfig.use, undefined)
-    assert.deepEqual(childConfig.use, [UK])
-    assert.equal(saved.content.includes('name: 节点选择'), true)
-    assert.equal(saved.content.includes(`name: ${UK}`), true)
+    assert.deepEqual(formStateToConfig(reopenedParent!).use, [UK])
+    assert.ok(!formStateToConfig(reopenedParent!).proxies?.includes(UK))
+    assert.deepEqual(formStateToConfig(reopenedChild!).use, [UK])
   })
 
-  it('已经存成 use 的父组，加载后改回组引用', () => {
+  it('点代理组时，即使存在同名快照也不进 use', () => {
+    const UK = '良心云-🇬🇧英国节点'
+    const child = createDefaultFormState(UK)
+    child.proxyOrder = [UK]
+    child.usedProviders = [UK]
+
+    let parent = createDefaultFormState('节点选择')
+    parent = selectProxyReference(parent, UK, 'group')
+    parent = applyProxyOrderFromEditor(parent, parent.proxyOrder, [UK], [UK])
+    assert.equal(parent.proxyOrder.includes(UK), true)
+    assert.deepEqual(parent.usedProviders, [])
+    assert.equal(proxyReferenceChecked(parent.proxyOrder, parent.usedProviders, UK, 'group'), true)
+    assert.equal(proxyReferenceChecked(parent.proxyOrder, parent.usedProviders, UK, 'provider'), false)
+
+    const picked = formStateToConfig(parent)
+    assert.equal(picked.proxies?.includes(UK), true)
+    assert.equal(picked.use, undefined)
+
+    const saved = saveAndReopen([parent, child], [{
+      name: UK,
+      subscriptionId: 7,
+      filter: '伦敦|英国|UK',
+      excludeFilter: '',
+      processMode: 'client',
+    }])
+    const reopenedParent = saved.groups.find((group) => group.name === '节点选择')
+    const reopenedChild = saved.groups.find((group) => group.name === UK)
+    assert.deepEqual(reopenedParent?.usedProviders, [])
+    assert.equal(reopenedParent?.proxyOrder.includes(UK), true)
+    assert.equal(formStateToConfig(reopenedParent!).proxies?.includes(UK), true)
+    assert.equal(formStateToConfig(reopenedParent!).use, undefined)
+    assert.deepEqual(reopenedChild?.usedProviders, [UK])
+    assert.deepEqual(formStateToConfig(reopenedChild!).use, [UK])
+  })
+
+  it('再点另一栏是切换类型，再点当前栏才移除', () => {
+    const UK = '良心云-🇬🇧英国节点'
+    let parent = createDefaultFormState('节点选择')
+    parent = selectProxyReference(parent, UK, 'group')
+    parent = selectProxyReference(parent, UK, 'provider')
+    assert.deepEqual(parent.proxyOrder, [UK])
+    assert.deepEqual(parent.usedProviders, [UK])
+    parent = selectProxyReference(parent, UK, 'group')
+    assert.deepEqual(parent.proxyOrder, [UK])
+    assert.deepEqual(parent.usedProviders, [])
+    parent = selectProxyReference(parent, UK, 'group')
+    assert.deepEqual(parent.proxyOrder, [])
+    assert.deepEqual(parent.usedProviders, [])
+  })
+
+  it('只含 proxies 的已保存同名项，加载后仍不是 use', () => {
     const UK = '良心云-🇬🇧英国节点'
     const content = `
 proxy-groups:
@@ -403,6 +451,44 @@ proxy-groups:
     proxies:
       - 故障转移
       - ${UK}
+      - DIRECT
+  - name: ${UK}
+    type: select
+    use:
+      - ${UK}
+  - name: 故障转移
+    type: fallback
+proxy-provider-snapshots:
+  - name: ${UK}
+    subscription_id: 7
+    process_mode: client
+`
+    const groups = extractProxyGroups(content)
+    const parent = groups.find((group) => group.name === '节点选择')
+    const child = groups.find((group) => group.name === UK)
+    assert.ok(parent)
+    assert.ok(child)
+    assert.equal(parent?.proxyOrder.includes(UK), true)
+    assert.equal(parent?.proxyOrder.includes('故障转移'), true)
+    assert.deepEqual(parent?.usedProviders, [])
+    assert.equal(parent?.includedProxyGroups.includes(UK), true)
+    assert.deepEqual(child?.usedProviders, [UK])
+
+    const edited = applyProxyOrderFromEditor(parent!, parent!.proxyOrder, [UK], [UK])
+    assert.deepEqual(edited.usedProviders, [])
+    assert.equal(formStateToConfig(edited).proxies?.includes(UK), true)
+    assert.equal(formStateToConfig(edited).use, undefined)
+    assert.deepEqual(formStateToConfig(child!).use, [UK])
+  })
+
+  it('已保存的同名 use，加载后仍是 use', () => {
+    const UK = '良心云-🇬🇧英国节点'
+    const content = `
+proxy-groups:
+  - name: 节点选择
+    type: select
+    proxies:
+      - 故障转移
       - DIRECT
     use:
       - ${UK}
@@ -421,49 +507,73 @@ proxy-groups:
     assert.ok(parent)
     assert.ok(child)
     assert.equal(parent?.proxyOrder.includes(UK), true)
-    assert.equal(parent?.proxyOrder.includes('故障转移'), true)
-    assert.equal(parent?.proxyOrder.includes('DIRECT'), true)
-    assert.equal(parent?.usedProviders.includes(UK), false)
-    assert.deepEqual(parent?.usedProviders, [])
-    assert.equal(parent?.includedProxyGroups.includes(UK), true)
+    assert.deepEqual(parent?.usedProviders, [UK])
+    assert.equal(parent?.includedProxyGroups.includes(UK), false)
     assert.deepEqual(child?.usedProviders, [UK])
     assert.equal(child?.includedProxyGroups.includes(UK), false)
 
     const parentConfig = formStateToConfig(parent!)
-    const childConfig = formStateToConfig(child!)
-    assert.equal(parentConfig.proxies?.includes(UK), true)
+    assert.deepEqual(parentConfig.use, [UK])
+    assert.ok(!parentConfig.proxies?.includes(UK))
     assert.equal(parentConfig.proxies?.includes('DIRECT'), true)
-    assert.equal(parentConfig.use, undefined)
-    assert.deepEqual(childConfig.use, [UK])
+    assert.deepEqual(formStateToConfig(child!).use, [UK])
+    assert.ok(!formStateToConfig(child!).proxies?.includes(UK))
 
-    // 内存里父组仍标着 use 时，保存也要写成 proxies，不能再写出 use。
-    const staleParent: ProxyGroupFormState = { ...parent!, usedProviders: [UK] }
-    const resaved = saveAndReopen([staleParent, child!, groups[2]], [])
-    const resavedParent = resaved.groups.find((group) => group.name === '节点选择')
-    const resavedChild = resaved.groups.find((group) => group.name === UK)
-    assert.equal(resavedParent?.usedProviders.includes(UK), false)
-    assert.equal(formStateToConfig(resavedParent!).use, undefined)
-    assert.equal(formStateToConfig(resavedParent!).proxies?.includes(UK), true)
-    assert.deepEqual(formStateToConfig(resavedChild!).use, [UK])
+    const saved = saveAndReopen(groups, [])
+    const reopenedParent = saved.groups.find((group) => group.name === '节点选择')
+    const reopenedChild = saved.groups.find((group) => group.name === UK)
+    assert.deepEqual(reopenedParent?.usedProviders, [UK])
+    assert.deepEqual(formStateToConfig(reopenedParent!).use, [UK])
+    assert.ok(!formStateToConfig(reopenedParent!).proxies?.includes(UK))
+    assert.deepEqual(reopenedChild?.usedProviders, [UK])
+  })
+
+  it('删组后没有引用就去掉同名快照，还有引用则保留', () => {
+    const UK = '良心云-🇬🇧英国节点'
+    const snapshots: ProxyProviderSnapshot[] = [
+      { name: UK, subscriptionId: 7, filter: '伦敦|英国|UK', excludeFilter: '', processMode: 'client' },
+      { name: HK, subscriptionId: 7, filter: 'HK|香港', excludeFilter: '', processMode: 'client' },
+    ]
+    const child = createDefaultFormState(UK)
+    child.proxyOrder = [UK]
+    child.usedProviders = [UK]
+    const parentReferencingOrder = createDefaultFormState('节点选择')
+    parentReferencingOrder.proxyOrder = ['故障转移', UK]
+
+    const keptBecauseOrder = snapshotsAfterGroupDelete(snapshots, UK, [parentReferencingOrder])
+    assert.deepEqual(keptBecauseOrder.map((snapshot) => snapshot.name), [UK, HK])
+    assert.deepEqual(parentReferencingOrder.proxyOrder, ['故障转移', UK])
+
+    const parentReferencingUse = createDefaultFormState('故障转移')
+    parentReferencingUse.usedProviders = [UK]
+    parentReferencingUse.proxyOrder = [UK]
+    const keptBecauseUse = snapshotsAfterGroupDelete(snapshots, child.name, [parentReferencingUse])
+    assert.deepEqual(keptBecauseUse.map((snapshot) => snapshot.name), [UK, HK])
+
+    const untouched = createDefaultFormState('节点选择')
+    untouched.proxyOrder = ['故障转移']
+    const removed = snapshotsAfterGroupDelete(snapshots, UK, [untouched])
+    assert.deepEqual(removed.map((snapshot) => snapshot.name), [HK])
+
+    const unrelatedDelete = snapshotsAfterGroupDelete(snapshots, '节点选择', [child])
+    assert.deepEqual(unrelatedDelete.map((snapshot) => snapshot.name), [UK, HK])
   })
 
   it('组名和集合名不同时，引用组名不是 use，直接引用集合名仍是 use', () => {
     const region = '香港节点'
     let parent = createDefaultFormState('节点选择')
-    parent = {
-      ...parent,
-      proxyOrder: [region, HK],
-      usedProviders: [region, HK],
-    }
-    parent = applyProxyOrderFromEditor(parent, parent.proxyOrder, [HK], [region])
+    parent = selectProxyReference(parent, region, 'group')
+    parent = selectProxyReference(parent, HK, 'provider')
+    // 快照名单里就算带上组名，重算也不会把组引用收进 use。
+    parent = applyProxyOrderFromEditor(parent, parent.proxyOrder, [HK, region], [region])
     assert.equal(parent.proxyOrder.includes(region), true)
     assert.equal(parent.proxyOrder.includes(HK), true)
     assert.deepEqual(parent.usedProviders, [HK])
-    assert.deepEqual(providerNamesForGroup([HK, region], parent.name, [region]), [HK])
+    assert.deepEqual(providerNamesForGroup([HK, region], parent.name, [region]), [HK, region])
 
     const config = formStateToConfig(parent)
     assert.equal(config.proxies?.includes(region), true)
-    assert.equal(config.proxies?.includes(HK), true)
+    assert.equal(config.proxies?.includes(HK), false)
     assert.deepEqual(config.use, [HK])
 
     const regionGroup = createDefaultFormState(region)
