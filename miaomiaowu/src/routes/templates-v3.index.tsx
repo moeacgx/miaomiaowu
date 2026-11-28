@@ -40,6 +40,7 @@ import {
   extractTemplateVariables,
   planNewProxyGroupsFromCollections,
   resolveNewProxyGroupName,
+  snapshotsAfterGroupDelete,
   snapshotsForSelectedCollections,
   updateProxyGroups,
   updateProxyProviderSnapshots,
@@ -597,7 +598,15 @@ function TemplatesV3Page() {
 
   // Handle proxy group delete
   const handleProxyGroupDelete = (index: number) => {
-    setProxyGroups(proxyGroups.filter((_, i) => i !== index))
+    const deleted = proxyGroups[index]
+    const remaining = proxyGroups.filter((_, i) => i !== index)
+    setProxyGroups(remaining)
+    if (deleted) {
+      const nextSnapshots = snapshotsAfterGroupDelete(providerSnapshots, deleted.name, remaining)
+      if (nextSnapshots.length !== providerSnapshots.length) {
+        setProviderSnapshots(nextSnapshots)
+      }
+    }
     setIsDirty(true)
   }
 

@@ -16,7 +16,11 @@ import {
   REGION_PROXY_GROUPS_DISPLAY,
   DIRECT_DISPLAY,
   REJECT_DISPLAY,
+  chooseProxyReference,
   ensureProxyOrderMarkers,
+  proxyReferenceChecked,
+  reconcileUsedProviders,
+  type ProxyReferenceColumn,
 } from '@/lib/template-v3-utils'
 import {
   DndContext,
@@ -42,9 +46,10 @@ import { CSS } from '@dnd-kit/utilities'
 interface ProxyGroupSelectProps {
   label: string
   value: string[]
-  onChange: (value: string[]) => void
+  onChange: (value: string[], usedProviders: string[]) => void
   availableGroups: string[]
   availableProviders?: string[]
+  usedProviders?: string[]
   showNodesMarker?: boolean
   showProvidersMarker?: boolean
   showRegionGroupsMarker?: boolean
@@ -81,8 +86,9 @@ function markerDisplayName(id: string): string {
   }
 }
 
-function markerBgClass(id: string, providerNames: string[] = []): string {
-  if (providerNames.includes(id)) return 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700'
+function markerBgClass(id: string, usedProviders: string[] = []): string {
+  // 绿色只表示这条引用在 use 里，不表示「快照里有同名集合」。
+  if (usedProviders.includes(id)) return 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700'
   switch (id) {
     case PROXY_NODES_MARKER: return 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'
     case PROXY_PROVIDERS_MARKER: return 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700'
@@ -93,7 +99,7 @@ function markerBgClass(id: string, providerNames: string[] = []): string {
   }
 }
 
-function SortableItem({ id, onRemove, providerNames = [] }: SortableItemProps & { providerNames?: string[] }) {
+function SortableItem({ id, onRemove, usedProviders = [] }: SortableItemProps & { usedProviders?: string[] }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const isMarker = isSpecialMarker(id)
 
@@ -108,7 +114,7 @@ function SortableItem({ id, onRemove, providerNames = [] }: SortableItemProps & 
     <div
       ref={setNodeRef}
       style={style}
-      className={cn('flex items-center gap-1 rounded-md px-2 py-1', markerBgClass(id, providerNames))}
+      className={cn('flex items-center gap-1 rounded-md px-2 py-1', markerBgClass(id, usedProviders))}
     >
       <GripVertical className="h-3 w-3 cursor-grab text-muted-foreground" {...attributes} {...listeners} />
       <span className="text-sm">{markerDisplayName(id)}</span>
@@ -126,9 +132,9 @@ function SortableItem({ id, onRemove, providerNames = [] }: SortableItemProps & 
   )
 }
 
-function DragOverlayItem({ id, providerNames = [] }: { id: string; providerNames?: string[] }) {
+function DragOverlayItem({ id, usedProviders = [] }: { id: string; usedProviders?: string[] }) {
   return (
-    <div className={cn('flex items-center gap-1 rounded-md px-2 py-1 shadow-lg', markerBgClass(id, providerNames))}>
+    <div className={cn('flex items-center gap-1 rounded-md px-2 py-1 shadow-lg', markerBgClass(id, usedProviders))}>
       <GripVertical className="h-3 w-3 cursor-grab text-muted-foreground" />
       <span className="text-sm">{markerDisplayName(id)}</span>
     </div>
@@ -141,6 +147,7 @@ export function ProxyGroupSelect({
   onChange,
   availableGroups,
   availableProviders = [],
+  usedProviders = [],
   showNodesMarker = false,
   showProvidersMarker = false,
   showRegionGroupsMarker = false,
@@ -188,20 +195,18 @@ export function ProxyGroupSelect({
     setActiveId(null)
     // Only sync to parent if order actually changed
     if (JSON.stringify(internalOrder) !== JSON.stringify(value)) {
-      onChange(internalOrder)
+      onChange(internalOrder, reconcileUsedProviders(internalOrder, [], usedProviders))
     }
   }
 
-  const handleSelect = (groupName: string) => {
-    if (value.includes(groupName)) {
-      onChange(value.filter(v => v !== groupName))
-    } else {
-      onChange([...value, groupName])
-    }
+  const handleSelect = (name: string, column: ProxyReferenceColumn) => {
+    const next = chooseProxyReference(value, usedProviders, name, column)
+    onChange(next.proxyOrder, next.usedProviders)
   }
 
-  const handleRemove = (groupName: string) => {
-    onChange(value.filter(v => v !== groupName))
+  const handleRemove = (name: string) => {
+    const nextOrder = value.filter(v => v !== name)
+    onChange(nextOrder, reconcileUsedProviders(nextOrder, [], usedProviders))
   }
 
   // Build display items: include markers if they should be shown and are in internalOrder
@@ -222,7 +227,7 @@ export function ProxyGroupSelect({
   })
   if (JSON.stringify(effectiveValue) !== JSON.stringify(value)) {
     // Schedule update for next tick to avoid render loop
-    setTimeout(() => onChange(effectiveValue), 0)
+    setTimeout(() => onChange(effectiveValue, reconcileUsedProviders(effectiveValue, [], usedProviders)), 0)
   }
 
   return (
@@ -234,12 +239,12 @@ export function ProxyGroupSelect({
             <SortableContext items={displayItems} strategy={rectSortingStrategy}>
               <div className="flex flex-wrap gap-2">
                 {displayItems.map(item => (
-                  <SortableItem key={item} id={item} onRemove={handleRemove} providerNames={availableProviders} />
+                  <SortableItem key={item} id={item} onRemove={handleRemove} usedProviders={usedProviders} />
                 ))}
               </div>
             </SortableContext>
             <DragOverlay>
-              {activeId ? <DragOverlayItem id={activeId} providerNames={availableProviders} /> : null}
+              {activeId ? <DragOverlayItem id={activeId} usedProviders={usedProviders} /> : null}
             </DragOverlay>
           </DndContext>
         )}
@@ -257,8 +262,8 @@ export function ProxyGroupSelect({
                 <CommandEmpty>没有找到代理组</CommandEmpty>
                 <CommandGroup heading={availableProviders.length > 0 ? '代理组' : undefined}>
                   {availableGroups.map(groupName => (
-                    <CommandItem key={groupName} value={groupName} onSelect={() => handleSelect(groupName)}>
-                      <Check className={cn('mr-2 h-4 w-4', value.includes(groupName) ? 'opacity-100' : 'opacity-0')} />
+                    <CommandItem key={groupName} value={`group:${groupName}`} onSelect={() => handleSelect(groupName, 'group')}>
+                      <Check className={cn('mr-2 h-4 w-4', proxyReferenceChecked(value, usedProviders, groupName, 'group') ? 'opacity-100' : 'opacity-0')} />
                       {groupName}
                     </CommandItem>
                   ))}
@@ -266,8 +271,8 @@ export function ProxyGroupSelect({
                 {availableProviders.length > 0 && (
                   <CommandGroup heading="代理集合">
                     {availableProviders.map(providerName => (
-                      <CommandItem key={`provider-${providerName}`} value={providerName} onSelect={() => handleSelect(providerName)}>
-                        <Check className={cn('mr-2 h-4 w-4', value.includes(providerName) ? 'opacity-100' : 'opacity-0')} />
+                      <CommandItem key={`provider-${providerName}`} value={`provider:${providerName}`} onSelect={() => handleSelect(providerName, 'provider')}>
+                        <Check className={cn('mr-2 h-4 w-4', proxyReferenceChecked(value, usedProviders, providerName, 'provider') ? 'opacity-100' : 'opacity-0')} />
                         {providerName}
                       </CommandItem>
                     ))}
